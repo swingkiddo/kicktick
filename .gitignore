@@ -27,3 +27,7 @@ deployment-*.json
 
 # Logs
 *.log
+
+opencode.json
+scripts/
+docs/
