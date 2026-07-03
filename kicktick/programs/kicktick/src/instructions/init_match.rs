@@ -1,8 +1,8 @@
-use anchor_lang::prelude::*;
-use anchor_lang::solana_program;
-use crate::state::*;
 use crate::constants::*;
 use crate::errors::KickTickError;
+use crate::state::*;
+use anchor_lang::prelude::*;
+use anchor_lang::solana_program;
 
 #[derive(Accounts)]
 #[instruction(fixture_id: i64, home_team: String, away_team: String)]
@@ -67,10 +67,11 @@ pub fn handler(
     );
 
     match_pda.vault_bump = vault_bump;
-    match_pda.vault_authority_bump = vault_bump;
 
     // Create vault system account via invoke_signed (PDA of this program)
-    if ctx.accounts.match_vault.lamports() == 0 || *ctx.accounts.match_vault.owner != system_program::ID {
+    if ctx.accounts.match_vault.lamports() == 0
+        || *ctx.accounts.match_vault.owner != system_program::ID
+    {
         let rent = Rent::get()?;
         let ix = solana_program::system_instruction::create_account(
             &ctx.accounts.creator.key(),
@@ -79,12 +80,7 @@ pub fn handler(
             0,
             &system_program::ID,
         );
-        let match_key = match_pda.key();
-        let seeds = &[
-            SEED_MATCH_VAULT,
-            match_key.as_ref(),
-            &[vault_bump],
-        ];
+        let seeds = &[SEED_MATCH_VAULT, match_pda.key().as_ref(), &[vault_bump]];
         let signer_seeds = &[&seeds[..]];
         solana_program::program::invoke_signed(
             &ix,

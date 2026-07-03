@@ -22,7 +22,6 @@ pub struct Match_ {
     pub away_team: String,
     pub competition_id: i32,
     pub vault_bump: u8,
-    pub vault_authority_bump: u8,
     pub round_counter: u64,
     pub total_deposited: u64,
     pub total_sponsored: u64,
@@ -39,7 +38,6 @@ impl Match_ {
         + (4 + Self::MAX_TEAM_NAME)
         + (4 + Self::MAX_TEAM_NAME)
         + 4
-        + 1
         + 1
         + 8
         + 8
