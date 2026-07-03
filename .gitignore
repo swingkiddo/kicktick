@@ -25,9 +25,14 @@ target/
 *.so
 deployment-*.json
 
+# Deployer keypairs (keep local only, never commit)
+*-deployer.json
+*-keypair.json
+
 # Logs
 *.log
 
 opencode.json
 scripts/
-docs/
+docs/*.md
+docs/*.pdf
