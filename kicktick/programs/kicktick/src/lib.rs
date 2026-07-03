@@ -3,9 +3,9 @@
 // Settles using TxODDS oracle data with Merkle proof validation
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount};
 
-declare_id!("KTCKiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCk"); // placeholder - replace after deploy
+declare_id!("CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc"); // placeholder - replace after deploy
 
 // TxODDS Oracle program ID (devnet)
 pub const TXORACLE_PROGRAM_ID: Pubkey = pubkey!("6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J");
@@ -139,13 +139,12 @@ pub mod kicktick {
         require!(clock.unix_timestamp < market.end_time, KickTickError::MarketExpired);
 
         // Transfer tokens from bettor to vault
-        let cpi_accounts = Transfer {
+        let cpi_accounts = anchor_spl::token::Transfer {
             from: ctx.accounts.bettor_token_account.to_account_info(),
             to: ctx.accounts.vault.to_account_info(),
             authority: ctx.accounts.bettor.to_account_info(),
         };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new(cpi_accounts, cpi_program);
+        let cpi_ctx = CpiContext::new(ctx.accounts.token_program.key(), cpi_accounts);
         token::transfer(cpi_ctx, amount)?;
 
         // Update market totals
@@ -224,16 +223,19 @@ pub mod kicktick {
 
         // Transfer from vault to winner
         let market_key = market.key();
-        let seeds = &[b"vault", market_key.as_ref(), &[ctx.bumps.vault]];
+        let (_, vault_bump) = Pubkey::find_program_address(
+            &[b"vault", market_key.as_ref()],
+            ctx.program_id,
+        );
+        let seeds = &[b"vault", market_key.as_ref(), &[vault_bump]];
         let signer = &[&seeds[..]];
 
-        let cpi_accounts = Transfer {
+        let cpi_accounts = anchor_spl::token::Transfer {
             from: ctx.accounts.vault.to_account_info(),
             to: ctx.accounts.winner_token_account.to_account_info(),
             authority: ctx.accounts.vault.to_account_info(),
         };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_accounts, cpi_program, signer);
+        let cpi_ctx = CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer);
         token::transfer(cpi_ctx, payout)?;
 
         position.claimed = true;
@@ -268,16 +270,19 @@ pub mod kicktick {
         let refund_amount = position.amount;
 
         let market_key = market.key();
-        let seeds = &[b"vault", market_key.as_ref(), &[ctx.bumps.vault]];
+        let (_, vault_bump) = Pubkey::find_program_address(
+            &[b"vault", market_key.as_ref()],
+            ctx.program_id,
+        );
+        let seeds = &[b"vault", market_key.as_ref(), &[vault_bump]];
         let signer = &[&seeds[..]];
 
-        let cpi_accounts = Transfer {
+        let cpi_accounts = anchor_spl::token::Transfer {
             from: ctx.accounts.vault.to_account_info(),
             to: ctx.accounts.bettor_token_account.to_account_info(),
             authority: ctx.accounts.vault.to_account_info(),
         };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_accounts, cpi_program, signer);
+        let cpi_ctx = CpiContext::new_with_signer(ctx.accounts.token_program.key(), cpi_accounts, signer);
         token::transfer(cpi_ctx, refund_amount)?;
 
         position.claimed = true;
@@ -325,7 +330,7 @@ fn determine_outcome(
 // ===== Account Contexts =====
 
 #[derive(Accounts)]
-#[instruction(fixture_id: i64, duration_seconds: i64)]
+#[instruction(fixture_id: i64, market_type: MarketType, description: String, duration_seconds: i64, yes_odds_at_creation: i32)]
 pub struct CreateMarket<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
@@ -333,15 +338,15 @@ pub struct CreateMarket<'info> {
         init,
         payer = creator,
         space = 8 + 32 + 8 + 1 + 128 + 8 + 8 + 1 + 1 + 8 + 8 + 4 + 4 + 8 + 1,
-        seeds = b"market", creator.key().as_ref(), fixture_id.to_le_bytes().as_ref(), 
-               Clock::get()?.unix_timestamp.to_le_bytes().as_ref(),
+        seeds = [b"market", creator.key().as_ref(), fixture_id.to_le_bytes().as_ref(), 
+               duration_seconds.to_le_bytes().as_ref()],
         bump
     )]
     pub market: Account<'info, PredictionMarket>,
     #[account(
         init,
         payer = creator,
-        seeds = b"vault", market.key().as_ref(),
+        seeds = [b"vault", market.key().as_ref()],
         bump,
         token::mint = usdt_mint,
         token::authority = vault,
@@ -362,7 +367,7 @@ pub struct PlaceBet<'info> {
         init_if_needed,
         payer = bettor,
         space = 8 + 32 + 32 + 1 + 8 + 1 + 1,
-        seeds = b"position", bettor.key().as_ref(), market.key().as_ref(),
+        seeds = [b"position", bettor.key().as_ref(), market.key().as_ref()],
         bump
     )]
     pub position: Account<'info, Position>,
@@ -390,7 +395,7 @@ pub struct ClaimWinnings<'info> {
     pub winner: Signer<'info>,
     #[account(mut)]
     pub market: Account<'info, PredictionMarket>,
-    #[account(mut, has_one = owner)]
+    #[account(mut, constraint = position.owner == winner.key())]
     pub position: Account<'info, Position>,
     #[account(mut)]
     pub vault: Account<'info, TokenAccount>,
@@ -411,7 +416,7 @@ pub struct RefundCancelled<'info> {
     #[account(mut)]
     pub bettor: Signer<'info>,
     pub market: Account<'info, PredictionMarket>,
-    #[account(mut, has_one = owner)]
+    #[account(mut, constraint = position.owner == bettor.key())]
     pub position: Account<'info, Position>,
     #[account(mut)]
     pub vault: Account<'info, TokenAccount>,
