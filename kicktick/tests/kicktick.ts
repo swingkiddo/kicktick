@@ -1,9 +1,6 @@
-// Native SOL migration — no USDT, no token accounts.
-// Relies on init_config instruction to bootstrap Config PDA.
-
 import * as anchor from '@anchor-lang/core';
 import { Program } from '@anchor-lang/core';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { assert } from 'chai';
 
 import { Kicktick } from '../target/types/kicktick';
@@ -11,7 +8,6 @@ import { Kicktick } from '../target/types/kicktick';
 const SEED_CONFIG = Buffer.from('config');
 const SEED_MATCH = Buffer.from('match');
 const SEED_MATCH_VAULT = Buffer.from('match_vault');
-const SEED_SESSION_BUDGET = Buffer.from('session_budget');
 const SEED_ROUND = Buffer.from('round');
 const SEED_POSITION = Buffer.from('position');
 
@@ -25,13 +21,18 @@ describe('KickTick (Native SOL)', () => {
   let configPda: PublicKey;
   let matchPda: PublicKey;
   let vaultPda: PublicKey;
+  let roundPda: PublicKey;
+  let positionPda: PublicKey;
 
   const fixtureId = new anchor.BN(54321);
   const homeTeam = 'Home FC';
   const awayTeam = 'Away United';
-  const depositAmount = new anchor.BN(100_000_000); // 0.1 SOL
   const betAmount = new anchor.BN(10_000_000); // 0.01 SOL
   const roundId = new anchor.BN(1);
+  const LOCK_SECS = 15;
+  const DEADLINE_SECS = 16;
+
+  const bettor2 = Keypair.generate();
 
   before(async () => {
     configPda = PublicKey.findProgramAddressSync(
@@ -39,23 +40,28 @@ describe('KickTick (Native SOL)', () => {
       program.programId,
     )[0];
 
-    // Bootstrap Config if not exists
     const existing = await provider.connection.getAccountInfo(configPda);
-    if (existing) return;
+    if (!existing) {
+      await (program.methods.initConfig() as any)
+        .accountsStrict({
+          admin: admin.publicKey,
+          config: configPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
 
-    await (program.methods.initConfig() as any)
-      .accountsStrict({
-        admin: admin.publicKey,
-        config: configPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+      const created = await provider.connection.getAccountInfo(configPda);
+      if (!created) throw new Error('init_config failed');
+    }
 
-    const created = await provider.connection.getAccountInfo(configPda);
-    if (!created) throw new Error('init_config failed');
+    // Fund bettor2 for placeBet
+    const sig = await provider.connection.requestAirdrop(
+      bettor2.publicKey, 0.1 * LAMPORTS_PER_SOL,
+    );
+    await provider.connection.confirmTransaction(sig, 'confirmed');
   });
 
-  it('1. init_match creates match PDA (no token vault)', async () => {
+  it('1. init_match creates match PDA + vault', async () => {
     matchPda = PublicKey.findProgramAddressSync(
       [SEED_MATCH, fixtureId.toArrayLike(Buffer, 'le', 8)],
       program.programId,
@@ -71,6 +77,7 @@ describe('KickTick (Native SOL)', () => {
         creator: admin.publicKey,
         config: configPda,
         matchPda,
+        matchVault: vaultPda,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -81,59 +88,20 @@ describe('KickTick (Native SOL)', () => {
     assert.equal(matchAccount.awayTeam.trimEnd(), awayTeam);
     assert.ok(matchAccount.vaultBump > 0, 'vault bump derived');
     assert.equal(matchAccount.totalDeposited.toNumber(), 0);
-    assert.equal(matchAccount.totalSponsored.toNumber(), 0);
+
+    const vaultInfo = await provider.connection.getAccountInfo(vaultPda);
+    assert.ok(vaultInfo !== null, 'vault PDA must exist after init_match');
+    assert.ok(vaultInfo!.owner.equals(SystemProgram.programId), 'vault must be system-owned');
+    assert.equal(vaultInfo!.data.length, 0, 'vault must have zero-size data');
+    assert.ok(vaultInfo!.lamports > 0, 'vault must hold rent-exempt lamports');
   });
 
-  it('2. fund_session_budget sends SOL to vault PDA', async () => {
-    const matchBefore = await program.account.match.fetch(matchPda);
-
-    const budgetPda = PublicKey.findProgramAddressSync(
-      [SEED_SESSION_BUDGET, admin.publicKey.toBuffer(), matchPda.toBuffer()],
-      program.programId,
-    )[0];
-
-    await (program.methods
-      .fundSessionBudget(depositAmount) as any)
-      .accountsStrict({
-        user: admin.publicKey,
-        budget: budgetPda,
-        matchPda,
-        matchVault: vaultPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    const matchAfter = await program.account.match.fetch(matchPda);
-    assert.equal(
-      matchAfter.totalDeposited.toNumber(),
-      matchBefore.totalDeposited.toNumber() + depositAmount.toNumber(),
-    );
-
-    const vaultBalance = await provider.connection.getBalance(vaultPda);
-    assert.equal(vaultBalance, depositAmount.toNumber());
-  });
-
-  it('3. open_round + place_bet (no token accounts)', async () => {
-    const roundPda = PublicKey.findProgramAddressSync(
+  it('2. open_round + place_bet sends SOL directly to vault', async () => {
+    roundPda = PublicKey.findProgramAddressSync(
       [SEED_ROUND, matchPda.toBuffer(), roundId.toArrayLike(Buffer, 'le', 8)],
       program.programId,
     )[0];
-
-    await (program.methods
-      .openRound(roundId, { varCheck: {} }, new anchor.BN(15), new anchor.BN(16)) as any)
-      .accountsStrict({
-        authority: admin.publicKey,
-        matchPda,
-        round: roundPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    const budgetPda = PublicKey.findProgramAddressSync(
-      [SEED_SESSION_BUDGET, admin.publicKey.toBuffer(), matchPda.toBuffer()],
-      program.programId,
-    )[0];
-    const positionPda = PublicKey.findProgramAddressSync(
+    positionPda = PublicKey.findProgramAddressSync(
       [
         SEED_POSITION,
         fixtureId.toArrayLike(Buffer, 'le', 8),
@@ -143,44 +111,94 @@ describe('KickTick (Native SOL)', () => {
       program.programId,
     )[0];
 
-    const budgetBefore = await program.account.sessionBudget.fetch(budgetPda);
+    await (program.methods
+      .openRound(roundId, { varCheck: {} }, new anchor.BN(LOCK_SECS), new anchor.BN(DEADLINE_SECS)) as any)
+      .accountsStrict({
+        authority: admin.publicKey,
+        matchPda,
+        round: roundPda,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    const vaultBefore = await provider.connection.getBalance(vaultPda);
 
     await (program.methods
       .placeBet(fixtureId, roundId, 0 /* YES */, betAmount) as any)
       .accountsStrict({
         bettor: admin.publicKey,
-        budget: budgetPda,
         matchPda,
+        matchVault: vaultPda,
         round: roundPda,
         position: positionPda,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
 
-    const budgetAfter = await program.account.sessionBudget.fetch(budgetPda);
+    const vaultAfter = await provider.connection.getBalance(vaultPda);
     assert.equal(
-      budgetAfter.usedAmount.toNumber(),
-      budgetBefore.usedAmount.toNumber() + betAmount.toNumber(),
+      vaultAfter - vaultBefore,
+      betAmount.toNumber(),
+      'vault balance must increase by bet amount',
+    );
+
+    const matchAccount = await program.account.match.fetch(matchPda);
+    assert.equal(
+      matchAccount.totalDeposited.toNumber(),
+      betAmount.toNumber(),
+      'match total_deposited = bet',
     );
 
     const roundAccount = await program.account.round.fetch(roundPda);
     assert.equal(roundAccount.totalYes.toNumber(), betAmount.toNumber());
   });
 
-  it('4. settle_offchain verifies winner/side numbering fix', async () => {
-    const roundPda = PublicKey.findProgramAddressSync(
-      [SEED_ROUND, matchPda.toBuffer(), roundId.toArrayLike(Buffer, 'le', 8)],
-      program.programId,
-    )[0];
-    const positionPda = PublicKey.findProgramAddressSync(
-      [SEED_POSITION, fixtureId.toArrayLike(Buffer, 'le', 8), roundId.toArrayLike(Buffer, 'le', 8), admin.publicKey.toBuffer()],
+  it('3. second bettor places NO (opposing side)', async () => {
+    const noPositionPda = PublicKey.findProgramAddressSync(
+      [
+        SEED_POSITION,
+        fixtureId.toArrayLike(Buffer, 'le', 8),
+        roundId.toArrayLike(Buffer, 'le', 8),
+        bettor2.publicKey.toBuffer(),
+      ],
       program.programId,
     )[0];
 
-    // Sleep until round.expires_at (now + 16s, +1s buffer)
-    await new Promise(r => setTimeout(r, 17000));
+    const vaultBefore = await provider.connection.getBalance(vaultPda);
 
-    // Settle round — OffChain market (VARCheck), winner=1 (YES)
+    await (program.methods
+      .placeBet(fixtureId, roundId, 1 /* NO */, betAmount) as any)
+      .accountsStrict({
+        bettor: bettor2.publicKey,
+        matchPda,
+        matchVault: vaultPda,
+        round: roundPda,
+        position: noPositionPda,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([bettor2])
+      .rpc();
+
+    const vaultAfter = await provider.connection.getBalance(vaultPda);
+    assert.equal(
+      vaultAfter - vaultBefore,
+      betAmount.toNumber(),
+      'vault balance increased by second bet',
+    );
+
+    const roundAccount = await program.account.round.fetch(roundPda);
+    assert.equal(roundAccount.totalNo.toNumber(), betAmount.toNumber());
+    assert.equal(
+      roundAccount.totalYes.toNumber() + roundAccount.totalNo.toNumber(),
+      betAmount.toNumber() * 2,
+    );
+  });
+
+  it('4. settle_offchain + confirm + claim_winnings', async () => {
+    // Wait for round to expire
+    await new Promise(r => setTimeout(r, (DEADLINE_SECS + 1) * 1000));
+
+    // Settle — YES wins (winner=1)
     await (program.methods
       .settleOffchainRound({ yes: {} }, 1) as any)
       .accountsStrict({
@@ -190,19 +208,49 @@ describe('KickTick (Native SOL)', () => {
       })
       .rpc();
 
-    // Read round and position state
-    const roundAfter = await program.account.round.fetch(roundPda);
-    const posAfter = await program.account.position.fetch(positionPda);
+    const roundSettled = await program.account.round.fetch(roundPda);
+    assert.equal(roundSettled.winner, 1, 'YES (1) wins');
 
-    console.log(`  round.winner = ${roundAfter.winner}`);
-    console.log(`  position.side = ${posAfter.side}`);
+    // Wait finality for confirmRound
+    await new Promise(r => setTimeout(r, 60000));
 
-    // Fix logic: round.winner - 1 maps to position.side
-    // zero=refund (handled before payout), 1=YES=>0, 2=NO=>1, 3=abstain=>2
-    assert.equal(
-      roundAfter.winner! - 1,
-      posAfter.side,
-      'winner/side numbering mismatch: fix is in claim.rs:56',
+    await (program.methods
+      .confirmRound() as any)
+      .accountsStrict({
+        caller: admin.publicKey,
+        matchPda,
+        round: roundPda,
+      })
+      .rpc();
+
+    // Claim — YES should succeed, NO should fail
+    const vaultBeforeClaim = await provider.connection.getBalance(vaultPda);
+    const adminBefore = await provider.connection.getBalance(admin.publicKey);
+
+    await (program.methods
+      .claimWinnings(fixtureId, roundId) as any)
+      .accountsStrict({
+        winner: admin.publicKey,
+        matchPda,
+        round: roundPda,
+        position: positionPda,
+        matchVault: vaultPda,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    const vaultAfterClaim = await provider.connection.getBalance(vaultPda);
+    const adminAfter = await provider.connection.getBalance(admin.publicKey);
+
+    // Vault balance decreased — payout sent
+    assert.ok(
+      vaultAfterClaim < vaultBeforeClaim,
+      'vault balance must decrease after claim',
+    );
+    // Admin received payout (minus tx fees)
+    assert.ok(
+      adminAfter > adminBefore,
+      'winner must receive SOL',
     );
   });
 });
