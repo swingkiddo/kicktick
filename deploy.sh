@@ -17,10 +17,11 @@ PROGRAM_ID=$(solana address -k target/deploy/kicktick-keypair.json)
 echo "KickTick Program ID: $PROGRAM_ID"
 
 # Deploy
+PRIORITY_ARGS="-- --with-compute-unit-price 10000"
 if [ "$NETWORK" = "devnet" ]; then
-  anchor deploy --provider.cluster devnet
+  anchor deploy --provider.cluster devnet $PRIORITY_ARGS
 else
-  anchor deploy --provider.cluster mainnet
+  anchor deploy --provider.cluster mainnet $PRIORITY_ARGS
 fi
 
 cd ..
