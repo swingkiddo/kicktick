@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program;
 use crate::state::*;
 use crate::constants::*;
 use crate::errors::KickTickError;
@@ -25,7 +26,7 @@ pub struct InitMatch<'info> {
     )]
     pub match_pda: Account<'info, Match_>,
 
-    /// Vault: system-owned PDA, created here.
+    /// CHECK: system-owned SOL vault. Created via invoke_signed using PDA seeds.
     #[account(mut)]
     pub match_vault: UncheckedAccount<'info>,
 
@@ -60,7 +61,6 @@ pub fn handler(
         &ctx.program_id,
     );
 
-    // Enforce vault is the correctly derived PDA
     require!(
         ctx.accounts.match_vault.key() == vault_pda,
         KickTickError::InvalidAccountData
@@ -69,22 +69,31 @@ pub fn handler(
     match_pda.vault_bump = vault_bump;
     match_pda.vault_authority_bump = vault_bump;
 
-    // Create vault system account if not exists (0 data, system-owned, rent-exempt)
+    // Create vault system account via invoke_signed (PDA of this program)
     if ctx.accounts.match_vault.lamports() == 0 || *ctx.accounts.match_vault.owner != system_program::ID {
         let rent = Rent::get()?;
-        let cpi_accounts = anchor_lang::system_program::CreateAccount {
-            from: ctx.accounts.creator.to_account_info(),
-            to: ctx.accounts.match_vault.to_account_info(),
-        };
-        let cpi_ctx = CpiContext::new(
-            *ctx.accounts.system_program.key,
-            cpi_accounts,
-        );
-        anchor_lang::system_program::create_account(
-            cpi_ctx,
+        let ix = solana_program::system_instruction::create_account(
+            &ctx.accounts.creator.key(),
+            &ctx.accounts.match_vault.key(),
             rent.minimum_balance(0),
             0,
             &system_program::ID,
+        );
+        let match_key = match_pda.key();
+        let seeds = &[
+            SEED_MATCH_VAULT,
+            match_key.as_ref(),
+            &[vault_bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+        solana_program::program::invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.creator.to_account_info(),
+                ctx.accounts.match_vault.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            signer_seeds,
         )?;
     }
 
