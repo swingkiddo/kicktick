@@ -32,7 +32,9 @@ deployment-*.json
 # Logs
 *.log
 
+skills-lock.json
 opencode.json
 scripts/
 docs/*.md
 docs/*.pdf
+.agents

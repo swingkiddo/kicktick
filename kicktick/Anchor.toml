@@ -7,6 +7,9 @@ skip-lint = false
 [programs.devnet]
 kicktick = "CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc"
 
+[programs.localnet]
+kicktick = "CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc"
+
 [provider]
 cluster = "devnet"
 wallet = "~/.config/solana/id.json"
