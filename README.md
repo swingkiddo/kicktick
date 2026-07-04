@@ -1,63 +1,105 @@
 # KickTick: Sub-Minute Micro Prediction Markets on Solana
 
-Create and settle prediction markets in **under 60 seconds** using live TxODDS odds data + on-chain Merkle proof settlement.
+Create and settle prediction markets in **under 60 seconds** using live TxODDS odds data + on-chain Merkle proof settlement via CPI to the `txoracle` program.
 
-**Market types:**
-- `odds_spike` — Will odds move >X% in the next N seconds?
-- `next_goal` — Which team scores next?
-- `next_card` — Card in next 5 minutes?
-- `over_under_corners` — Corners in next N minutes?
-- `match_result` — Short-format winner
+**World Cup Hackathon** — Superteam × Solana, powered by TxODDS
 
-**Key Features**
-- TxODDS oracle integration (stable de-margined odds)
-- Merkle proof validation against `txoracle` program
-- Fast settlement on Solana
-- Sub-minute market lifecycles (15s – 5min)
-- PDA vaults + on-chain position tracking
+## Market Types
+
+| Type | Description | Settlement |
+|------|-------------|------------|
+| `next_goal` | Which team scores next? | CPI (ternary: home/away/draw) |
+| `next_goal_side` | Will next goal be by home team? | CPI (ternary) |
+| `goal_in_window` | Goal in next N minutes? | CPI (binary) |
+| `next_corner` | Corner in next 5 min? | CPI (binary) |
+| `next_card` | Card in next 5 min? | CPI (binary) |
+| `over_under_corners` | Corners threshold in window? | CPI (binary) |
+| `penalty_shootout` | Penalty round outcome | CPI + off-chain fallback |
+| `var_check` | VAR overturn? | Off-chain (relayer) |
+
+## Key Features
+
+- **Native SOL** betting — no SPL tokens for wagers
+- **CPI settlement** — `settle_round` calls `txoracle::validate_stat` on-chain
+- **Off-chain settlement** — `settle_offchain_round` for PenaltyShot/VARCheck
+- **Sub-minute markets** — 15s lock, 60s finality delay, 15–300s duration
+- **Event-driven** — SSE from TxLINE triggers market creation and settlement
+- **PDA vaults** — MatchVault (system-owned), Position tracking, SponsorVault
 
 ## Architecture
 
 ```
-+------------------------------------------------------------------+
-|                     FRONTEND (Next.js)                           |
-|  +------------------+  +------------------+                      |
-|  |   KickTick UI    |  |   Live Odds Feed |                      |
-|  +--------+---------+  +--------+---------+                      |
-+-----------+---------------------+--------------------------------+
-            |                     |
-            v                     v
-+------------------------------------------------------------------+
-|                   SDK / CLIENT (TypeScript)                      |
-|  +------------------+  +------------------+                      |
-|  | KickTickManager  |  |  TxOddsClient    |                      |
-|  | (create/bet/settle) |  + Merkle proofs  |                     |
-|  +------------------+  +------------------+                      |
-+-----------+---------------------+--------------------------------+
-            |                                              
-            v
-+------------------------------------------------------------------+
-|                    SOLANA (Anchor)                               |
-|                                                                  |
-|  kicktick program                                                |
-|  - create_market                                                 |
-|  - place_bet                                                     |
-|  - settle_market (TxODDS + proof)                                |
-|  - claim_winnings                                                |
-|  - cancel / refund                                               |
-|                                                                  |
-+------------------------------------------------------------------+
-                             |
-                             v
-+------------------------------------------------------------------+
-|                  TxODDS ORACLE (txoracle program)                |
-|                                                                  |
-|   - Merkle roots published on-chain                              |
-|   - Cryptographic proof validation for settlement                |
-|   - Live odds + scores via SSE                                   |
-|   - Free World Cup tier                                          |
-|                                                                  |
-+------------------------------------------------------------------+
+                    TxLINE API (txline-dev.txodds.com)
+                 ┌──────────────────────────────────┐
+                 │  Guest JWT + API token            │
+                 │  SSE odds/scores streams          │
+                 │  REST stat-validation (Merkle)    │
+                 └─────────────┬────────────────────┘
+                               │
+                               ▼
+┌──────────────────────────────────────────────────────┐
+│  RELAYER (Node/TS — off-chain crank, no DB)          │
+│                                                      │
+│  txline-auth → SSE parser → fixture-watcher          │
+│  market-trigger (rules engine)                       │
+│  proof-gatherer → crank (build+sign+send tx)         │
+│  ws-server → WebSocket to frontend                   │
+└──────────┬───────────────────────────────────────────┘
+           │ CPI validate_stat          │ WebSocket
+           ▼                            ▼
+┌─────────────────────┐    ┌─────────────────────────┐
+│ Solana Devnet       │    │ Frontend (Next.js)       │
+│                     │    │                          │
+│ kicktick program    │    │ Wallet (Phantom/Solflare)│
+│  init_config        │    │ MarketCard (bet UI)      │
+│  init_match         │    │ CreateMarketModal        │
+│  open_round         │    │ LiveOddsFeed             │
+│  place_bet          │    │                          │
+│  settle_round (CPI) │    └─────────────────────────┘
+│  settle_offchain    │
+│  confirm_round      │
+│  claim_winnings     │
+│  cancel_round       │
+│  challenge_equivoc. │
+│                     │
+│ txoracle program    │
+│  validate_stat (CPI)│
+└─────────────────────┘
+```
+
+## Repository Structure
+
+```
+kicktick/
+├── README.md
+├── AGENTS.md                    # Agent instructions
+├── setup-local.sh               # Local environment setup
+├── docker-compose.yml           # Dev orchestration
+├── docker-compose.prod.yml      # Prod orchestration
+├── simulation.ts                # Settlement logic demos
+├── simulation.js
+├── scripts/
+│   ├── build.sh                 # Docker build [all|contracts|frontend|relayer]
+│   └── deploy.sh                # Deploy [devnet|mainnet]
+├── docs/agent/                  # Full agent documentation
+├── kicktick/                    # Anchor workspace
+│   ├── Anchor.toml
+│   ├── programs/kicktick/src/   # On-chain program (Rust)
+│   ├── tests/                   # Integration tests
+│   └── scripts/                 # Anchor scripts
+├── relayer/                     # Off-chain crank (Node/TS)
+│   ├── src/
+│   │   ├── txline-auth.ts       # TxLINE JWT auth
+│   │   ├── cpi-spike.ts         # CPI validation test
+│   │   ├── verify-tokens.ts     # Token mint checker
+│   │   ├── config.ts            # Relayer config
+│   │   └── index.ts             # Entry point
+│   └── package.json
+└── frontend/                    # Next.js UI
+    ├── app/                     # App Router pages
+    ├── components/              # React components
+    ├── lib/                     # Utilities
+    └── package.json
 ```
 
 ## Quick Start
@@ -72,82 +114,85 @@ cd kicktick
 solana-keygen new --outfile ~/.config/solana/id.json
 solana airdrop 2
 
-# 3. (Optional) Deploy program
-./deploy.sh devnet
+# 3. Build all services
+./scripts/build.sh all dev
 
-# 4. Start the frontend
-cd frontend
-npm run dev
+# 4. Deploy program to devnet
+./scripts/deploy.sh devnet
+
+# 5. Start frontend
+cd frontend && npm run dev
 ```
 
-Open http://localhost:3000 — create markets, place bets (demo), watch live odds.
-
-## TxODDS Integration
-
-| Feature         | Usage                              |
-|-----------------|------------------------------------|
-| Auth            | Guest JWT via TxODDS API           |
-| Subscribe       | On-chain subscribe (free tier)     |
-| Odds Stream     | SSE real-time updates              |
-| Snapshot        | Current stable (de-margined) prices|
-| Settlement      | Merkle proof vs on-chain root      |
-
-**Devnet TxODDS Oracle:** `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J`  
-**KickTick Program ID (placeholder):** `KTCKiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCk`
-
-## Repository Structure
-
-```
-kicktick/
-├── README.md
-├── deploy.sh
-├── setup-local.sh
-├── simulation.ts              # Settlement & spike detection tests
-├── simulation.js
-├── frontend/                  # Next.js UI
-│   ├── app/
-│   ├── components/
-│   └── lib/
-└── kicktick/                  # Anchor workspace
-    ├── Anchor.toml
-    ├── programs/kicktick/
-    │   └── src/lib.rs         # On-chain program
-    ├── client/
-    │   ├── src/
-    │   │   ├── txodds-oracle.ts   # TxODDS + SpikeDetector
-    │   │   └── market-manager.ts  # High-level SDK
-    │   └── package.json
-    └── tests/kicktick.ts
-```
-
-## Market Lifecycle (Sub-60s)
-
-1. Create market (specify type + short duration)
-2. Users place YES/NO bets (USDT)
-3. Market expires (15s–5m)
-4. Settle using TxODDS data + proof → outcome Yes/No
-5. Winners claim from vault
-
-`odds_spike` markets use the built-in `SpikeDetector` (15% threshold by default) in the client.
-
-## Running Simulations
+## Build & Deploy
 
 ```bash
-# TypeScript
-npx ts-node simulation.ts
+# Build Docker images
+./scripts/build.sh [all|contracts|frontend|relayer] [dev|prod]
 
-# or JS
-node simulation.js
+# Deploy to devnet (auto-builds contracts if needed)
+./scripts/deploy.sh [devnet|mainnet] [priority_fee]
 ```
 
-These demonstrate settlement logic for all market types without requiring a full chain.
+Deployment info saved to `deployment-{network}.json`.
 
-## Security Notes
+## Program IDs (Devnet)
 
-- All settlements reference verifiable TxODDS Merkle data
+| Component | Address |
+|-----------|---------|
+| KickTick program | `CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc` |
+| TxOracle program | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` |
+| TxL mint (Token-2022) | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` |
+| USDT mint (Token) | `ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh` |
+
+## On-Chain Config
+
+| Parameter | Value |
+|-----------|-------|
+| Min market duration | 15 seconds |
+| Max market duration | 300 seconds (5 min) |
+| Finality delay | 60 seconds |
+| Default lock | 15 seconds |
+| Min round liquidity | 0.01 SOL |
+| CPI compute units | 1,400,000 |
+
+## Market Lifecycle
+
+1. Relayer detects match event via SSE (goal, corner, card, etc.)
+2. `open_round` — market opens with specified duration
+3. Users place YES/NO bets (native SOL)
+4. Market locks at deadline
+5. `settle_round` via CPI to `txoracle::validate_stat` with Merkle proof
+6. 60s finality delay → `confirm_round`
+7. Winners `claim_winnings` from vault
+
+## Development Status
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | TxLINE auth, CPI spike test, token verification | ✅ Done |
+| 1 | Anchor program (10 instructions, 5 PDAs, native SOL) | ✅ Done |
+| 2 | Relayer SSE parser, market triggers, crank, WebSocket | ⏳ In progress |
+| 3 | Replay engine + demo | ⏳ Pending |
+
+## Security
+
+- All settlements reference verifiable TxODDS Merkle data via CPI
 - PDA-controlled vaults (no privileged withdrawal keys)
-- Strict duration + overflow checks in program
-- Grace period for settlement calls
+- Strict duration + overflow checks on-chain
+- Equivocation challenge mechanism
+- Finality delay before confirmation
+
+## Documentation
+
+Full agent documentation in `docs/agent/`:
+
+```
+docs/agent/overview/    → Project context, architecture, roadmap
+docs/agent/services/    → Program, relayer, frontend deep docs
+docs/agent/integration/ → Data flow, dependencies, environment
+docs/agent/operations/  → Workflows, troubleshooting
+```
 
 ## License
 
