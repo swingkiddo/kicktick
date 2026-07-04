@@ -102,8 +102,8 @@ anchor deploy --provider.cluster devnet  # Deploy to devnet
 anchor test                           # Run tests
 
 # Relayer
-cd relayer && npx ts-node src/cpi-spike.ts  # Run CPI spike test
-cd relayer && npx ts-node src/verify-tokens.ts  # Check token mints
+cd relayer && npx ts-node src/scripts/cpi-spike.ts  # Run CPI spike test
+cd relayer && npx ts-node src/scripts/verify-tokens.ts  # Check token mints
 
 # Frontend
 cd frontend && npm run dev              # Dev server

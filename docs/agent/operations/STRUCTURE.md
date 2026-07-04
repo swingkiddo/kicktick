@@ -94,10 +94,30 @@ The `client/` directory previously contained a TypeScript SDK (`market-manager.t
 | `tsconfig.json` | - | TS config |
 | `.env.example` | - | Env template (JWT, API token, RPC, keypair, program IDs) |
 | `src/config.ts` | 45 | `loadConfig()` — env-based config with defaults |
-| `src/txline-auth.ts` | 138 | `authenticateGuest()`, `activateApiToken()`, `testConnection()` — uses @swingkiddo/txodds-client |
-| `src/cpi-spike.ts` | 456 | **Task 0.2 CPI spike test.** Fetches stat-validation, inspects proof structure, derives PDAs, verifies devnet programs. Complete CPI call format documentation |
-| `src/verify-tokens.ts` | 75 | Confirms TxL (Token-2022) and USDT (Token) mints on devnet |
-| `src/index.ts` | 20 | Placeholder main loop with TODO stubs |
+| `src/index.ts` | 178 | Main loop wiring |
+| `src/clients/txline-auth.ts` | 138 | `authenticateGuest()`, `activateApiToken()`, `testConnection()` |
+| `src/clients/txline-client.ts` | 185 | SSE scores/odds stream with reconnection |
+| `src/clients/anchor-client.ts` | 426 | Solana Anchor tx builder |
+| `src/market/event-parser.ts` | 553 | SSE → typed FootballEvent + MarketType mapping |
+| `src/market/fixture-watcher.ts` | 283 | Match state tracking, PDA derivation |
+| `src/market/triggers.ts` | 593 | Rules engine: event-triggered + cron windows |
+| `src/settlement/proof-gatherer.ts` | 208 | Merkle proof fetcher from TxLINE |
+| `src/settlement/crank.ts` | 284 | Build + send Solana txs with retry |
+| `src/api/ws-server.ts` | 168 | WebSocket push for frontend |
+| `src/scripts/cpi-spike.ts` | 456 | CPI spike test — validate_stat feasibility |
+| `src/scripts/verify-tokens.ts` | 75 | TxL + USDT mint verification |
+
+### `docs/agent/services/relayer/` — Agent Docs
+
+| Path | Type | Content |
+|------|------|---------|
+| `README.md` | overview | Purpose, data flow, module structure, deps |
+| `ARCHITECTURE.md` | architecture | Module dependency graph, startup sequence, event pipeline |
+| `STREAMS.md` | reference | SSE streams, auth, 18 event types, reconnect, status phases |
+| `TRIGGERS.md` | reference | Market trigger rules — event, cron, shootout, timeout |
+| `SETTLEMENT.md` | reference | Proof gathering, crank, retry policy, tx building |
+| `API.md` | reference | WebSocket protocol — messages, subscriptions |
+| `BUILD.md` | howto | Build, run, scripts, env, debug |
 
 ---
 

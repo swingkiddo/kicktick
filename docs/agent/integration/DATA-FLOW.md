@@ -116,5 +116,9 @@ NS(1) → H1(2) → HT(3) → H2(4) → F(5) → WET(6) → ET(7-10) → WPE(11)
 ## Related Docs
 
 - `program/README.md` — Anchor program instructions
-- `relayer/README.md` — relayer architecture
+- `relayer/README.md` — relayer overview
+- `relayer/ARCHITECTURE.md` — full module architecture
+- `relayer/STREAMS.md` — SSE streams and auth
+- `relayer/TRIGGERS.md` — market trigger rules
+- `relayer/SETTLEMENT.md` — proof gathering and crank
 - `integration/ENVIRONMENT.md` — network endpoints

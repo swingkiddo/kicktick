@@ -6,10 +6,15 @@ service: relayer
 depends_on:
   - overview-architecture
 related_to:
+  - relayer-architecture
+  - relayer-streams
+  - relayer-triggers
+  - relayer-settlement
+  - relayer-api
+  - relayer-build
   - program-readme
   - integration-data-flow
 tags: [relayer, overview, crank]
-status: stub
 ---
 
 # Relayer Overview
@@ -25,87 +30,68 @@ Responsibilities:
 - **Crank** — builds and sends Solana transactions to devnet
 - **WebSocket** — pushes round statuses to frontend
 
-## Current State
-
-### Phase 0 (Completed July 3, 2026)
-- TxLINE authentication flow (guest JWT + API token)
-- CPI spike test (validate_stat feasibility)
-- Token mint verification (TxL + USDT on devnet)
-
-### Phase 2 (Pending)
-- SSE parser for scores/odds streams
-- Fixture watcher (StatusId tracking)
-- Market trigger rules engine
-- Proof gatherer (Merkle proof fetcher)
-- Crank (transaction builder)
-- WebSocket server (frontend push)
-
-## Module List
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/config.ts` | 45 | Env config loader (RPC, program IDs, tokens) |
-| `src/txline-auth.ts` | 138 | Guest JWT + API token activation |
-| `src/cpi-spike.ts` | 456 | CPI spike test — validate_stat feasibility |
-| `src/verify-tokens.ts` | 75 | TxL + USDT mint verification on devnet |
-| `src/index.ts` | 20 | Placeholder main loop |
-
-## TxLINE Auth Flow
+## Data Flow
 
 ```
-1. POST /auth/guest/start  →  JWT
-2. POST /api/token/activate (with signed message)  →  API token
-3. All subsequent requests:
-   Header "Authorization: Bearer <JWT>"
-   Header "X-Api-Token: <API_TOKEN>"
+TxLINE SSE scores stream
+  → txline-client (with reconnect)
+    → event-parser (raw SSE → typed FootballEvent)
+      → fixture-watcher (match state: scores, status, phase)
+        → market-trigger (rules engine: event + cron)
+          → proof-gatherer (GET /stat-validation)
+            → crank (build tx → sign → send to devnet)
+              → ws-server (push status to frontend)
 ```
 
-Implemented in `src/txline-auth.ts` using `@swingkiddo/txodds-client` SDK.
+## Key Concepts
 
-## Running Scripts
+- **Event-driven:** markets open/close in response to live match events
+- **Cron windows:** time-window markets fire on interval (GoalInWindow every 5min)
+- **No database:** all state in memory + on-chain Solana accounts
+- **Auto-reconnect:** exponential backoff on SSE disconnects (1s–30s)
 
-```bash
-cd relayer
-
-# Set env vars
-export TXLINE_JWT=<your_jwt>
-export TXLINE_API_TOKEN=<your_token>
-
-# CPI spike test
-npx ts-node src/cpi-spike.ts
-
-# Token verification
-npx ts-node src/verify-tokens.ts
-```
-
-## Planned Architecture
+## Module Structure
 
 ```
-SSE scores stream → fixture-watcher (StatusId 1-19)
-     │
-     ▼
-market-trigger.ts (rules engine)
-  • Event-triggered: goal→NextGoalSide, corner→NextCorner
-  • Cron: every 5min→GoalInWindow
-  • Shootout mode: PE status→sequential rounds
-  • Timeouts: deadline→settle(NO)
-     │
-     ├──► proof-gatherer (GET /stat-validation)
-     │       │
-     │       ▼
-     │   crank.ts (build tx → sign → send to devnet)
-     │
-     └──► ws-server.ts (WebSocket → frontend)
+src/
+├── config.ts               env config loader
+├── index.ts                main loop wiring
+├── clients/                external integrations
+│   ├── txline-auth.ts      JWT + API token activation
+│   ├── txline-client.ts    SSE scores/odds stream
+│   └── anchor-client.ts    Solana Anchor tx builder
+├── market/                 event processing + rules
+│   ├── event-parser.ts     raw SSE → typed FootballEvent
+│   ├── fixture-watcher.ts  match state tracking
+│   └── triggers.ts         market trigger rules engine
+├── settlement/             proof + transactions
+│   ├── proof-gatherer.ts   Merkle proof fetcher
+│   └── crank.ts            tx builder + retry
+├── api/
+│   └── ws-server.ts        WebSocket for frontend
+└── scripts/                one-off utilities
+    ├── cpi-spike.ts        CPI validate_stat feasibility test
+    └── verify-tokens.ts    TxL/USDT mint verification
 ```
 
 ## Dependencies
 
-- `@swingkiddo/txodds-client` — TxLINE API wrapper
-- `@solana/web3.js` — Solana RPC interaction
-- `dotenv` — environment config
+| Package | Purpose |
+|---------|---------|
+| `@swingkiddo/txodds-client` | TxLINE API wrapper (auth, SSE, proof) |
+| `@solana/web3.js` | Solana RPC interaction |
+| `@anchor-lang/core` | Anchor tx building |
+| `ws` | WebSocket server |
+| `dotenv` | Environment config |
 
 ## Related Docs
 
-- `integration/DATA-FLOW.md` — end-to-end data flow diagram
-- `integration/ENVIRONMENT.md` — environment variables, network endpoints
-- `program/README.md` — Anchor program instructions
+| Doc | Content |
+|-----|---------|
+| `relayer/ARCHITECTURE.md` | Module dependency graph, startup sequence, event pipeline |
+| `relayer/STREAMS.md` | SSE connectivity, auth, fixture loading, reconnect |
+| `relayer/TRIGGERS.md` | Market trigger rules — event, cron, shootout, timeout |
+| `relayer/SETTLEMENT.md` | Proof gathering, crank, retry policy |
+| `relayer/API.md` | WebSocket protocol — messages, subscriptions |
+| `relayer/BUILD.md` | Build, run, scripts |
+| `integration/ENVIRONMENT.md` | Env vars, program IDs, endpoints |
