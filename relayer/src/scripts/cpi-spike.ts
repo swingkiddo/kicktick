@@ -37,7 +37,7 @@
 import { TxOddsClient, PDA_SEEDS } from "@swingkiddo/txodds-client";
 import type { StatValidationResult } from "@swingkiddo/txodds-client";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { loadConfig } from "./config";
+import { loadConfig } from "../config";
 
 const COMPETITION_ID = 72; // World Cup
 const STAT_KEYS = [1, 7]; // 1 = goals, 7 = corners

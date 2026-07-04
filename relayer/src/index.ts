@@ -1,20 +1,178 @@
 import { loadConfig } from "./config";
+import { TxLineClient } from "./clients/txline-client";
+import { AnchorClient } from "./clients/anchor-client";
+import { ProofGatherer } from "./settlement/proof-gatherer";
+import { Crank, CrankStatus } from "./settlement/crank";
+import { WsServer, WsServerMessage } from "./api/ws-server";
+import { MarketTrigger } from "./market/triggers";
+import { FixtureWatcher } from "./market/fixture-watcher";
+import { parseFootballEvent } from "./market/event-parser";
+import type { FixtureRecord } from "@swingkiddo/txodds-client";
 
-function main() {
+function getRoundMessage(status: CrankStatus): WsServerMessage | null {
+  const { fixtureId, roundId, txSig } = status;
+  if (!txSig) return null;
+  switch (status.action) {
+    case "open_round":
+      return {
+        type: "round_opened",
+        data: { fixtureId, roundId, marketType: "", lockSeconds: 0, deadlineSeconds: 0, expiresAt: 0 },
+      };
+    case "settle_onchain":
+    case "settle_offchain":
+      return { type: "round_settled", data: { fixtureId, roundId, outcome: "", txSig } };
+    case "confirm_round":
+      return { type: "round_confirmed", data: { fixtureId, roundId, txSig } };
+    default:
+      return null;
+  }
+}
+
+async function main(): Promise<void> {
   const config = loadConfig();
 
-  console.log("KickTick Relayer v0.1.0");
+  console.log("╔══════════════════════════════════════════╗");
+  console.log("║       KickTick Relayer v0.1.0            ║");
+  console.log("╚══════════════════════════════════════════╝");
   console.log(`  Solana RPC:      ${config.solanaRpcUrl}`);
   console.log(`  Keypair:         ${config.solanaKeypairPath}`);
   console.log(`  KickTick PID:    ${config.kicktickProgramId.toBase58()}`);
   console.log(`  TxOracle PID:    ${config.txoracleProgramId.toBase58()}`);
   console.log(`  WS Port:         ${config.wsPort}`);
+  console.log(`  TxLINE Host:     ${config.txlineApiHost}`);
+  console.log(`  TxLINE JWT:      ${config.txlineJwt ? "set" : "missing"}`);
+  console.log(`  TxLINE Token:    ${config.txlineApiToken ? "set" : "missing"}`);
 
-  // TODO: Authenticate with TxLINE (JWT + API token)
-  // TODO: Connect to TxLINE SSE stream for scores/odds
-  // TODO: Monitor on-chain market states and trigger round transitions
-  // TODO: Settlement crank — gather Merkle proofs and submit to Solana
-  // TODO: WebSocket server for real-time status updates
+  if (!config.txlineJwt && !config.txlineApiToken) {
+    console.error("FATAL: No TxLINE credentials configured.");
+    process.exit(1);
+  }
+
+  const wsServer = new WsServer(config.wsPort);
+  const txlineClient = new TxLineClient(config);
+  const anchorClient = new AnchorClient(config);
+  const proofGatherer = new ProofGatherer(txlineClient);
+  const crank = new Crank(anchorClient, proofGatherer);
+  const fixtureWatcher = new FixtureWatcher(txlineClient, config);
+  const marketTrigger = new MarketTrigger();
+
+  if (!config.txlineJwt) {
+    console.log("Authenticating with TxLINE...");
+    const jwt = await txlineClient.authenticate();
+    txlineClient.setJwt(jwt);
+    console.log("TxLINE JWT obtained.");
+  }
+
+  crank.on("status", (status: CrankStatus) => {
+    wsServer.broadcast({ type: "tx_status", data: status });
+    if (status.status === "confirmed") {
+      const msg = getRoundMessage(status);
+      if (msg) wsServer.broadcast(msg);
+    }
+  });
+
+  crank.on("error", (err: Error) => {
+    console.error("Crank error:", err.message);
+  });
+
+  marketTrigger.on("actions", (actions) => {
+    crank.executeActions(actions).catch((e: Error) =>
+      console.error("Trigger action error:", e.message),
+    );
+  });
+
+  wsServer.start();
+  console.log(`WS server listening on port ${config.wsPort}`);
+
+  console.log("Fetching fixtures for competition 72 (World Cup)...");
+  let fixtures: { FixtureId: number }[] = [];
+  try {
+    fixtures = (await txlineClient.getFixtures(72)) as FixtureRecord[];
+    console.log(`Loaded ${fixtures.length} fixtures.`);
+  } catch (err) {
+    console.error("Failed to fetch fixtures:", err instanceof Error ? err.message : err);
+  }
+
+  const activeFixtures = fixtures.slice(0, 5);
+  for (const fixture of activeFixtures) {
+    const fixtureId = fixture.FixtureId;
+    try {
+      const state = await fixtureWatcher.loadFixture(fixtureId);
+      console.log(
+        `  Fixture ${fixtureId}: ${state.participants.home} vs ${state.participants.away} [${state.currentPeriod}]`,
+      );
+      marketTrigger.startCronWindows(fixtureId);
+    } catch (err) {
+      console.error(`  Failed to load fixture ${fixtureId}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  const sseLoop = (async () => {
+    console.log("Starting SSE scores stream...");
+    for await (const event of txlineClient.streamScores()) {
+      try {
+        const rawData = JSON.parse(event.data);
+        const fixtureId: number | undefined = rawData.FixtureId;
+        if (!fixtureId) continue;
+
+        const footballEvent = parseFootballEvent(event);
+        fixtureWatcher.processEvent(footballEvent, fixtureId);
+
+        const matchState = fixtureWatcher.getFixtureState(fixtureId);
+        if (!matchState) continue;
+
+        marketTrigger.processEvent(footballEvent, fixtureId, matchState);
+
+        wsServer.broadcastToMatch(fixtureId, {
+          type: "football_event",
+          data: {
+            action: footballEvent.action,
+            fixtureId,
+            participant: "participant" in footballEvent && typeof footballEvent.participant === "number" ? footballEvent.participant : undefined,
+            description: footballEvent.action,
+          },
+        });
+      } catch (err) {
+        console.error("SSE event error:", err instanceof Error ? err.message : err);
+      }
+    }
+  })();
+
+  const timeoutTimer = setInterval(() => {
+    const allFixtures = fixtureWatcher.getAllFixtures();
+    for (const matchState of allFixtures) {
+      const fixtureId = matchState.fixtureId;
+      try {
+        const timeoutActions = marketTrigger.checkTimeouts(fixtureId);
+        if (timeoutActions.length > 0) {
+          crank.executeActions(timeoutActions).catch((e: Error) =>
+            console.error(`Timeout actions error [${fixtureId}]:`, e.message),
+          );
+        }
+      } catch (err) {
+        console.error(`Timeout check error [${fixtureId}]:`, err instanceof Error ? err.message : err);
+      }
+    }
+  }, 5000);
+
+  async function shutdown(): Promise<void> {
+    console.log("\nShutting down...");
+    clearInterval(timeoutTimer);
+    for (const ms of fixtureWatcher.getAllFixtures()) {
+      marketTrigger.stopCronWindows(ms.fixtureId);
+    }
+    wsServer.stop();
+    console.log("Goodbye.");
+    process.exit(0);
+  }
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await sseLoop;
 }
 
-main();
+main().catch((err) => {
+  console.error("Fatal:", err instanceof Error ? err.message : err);
+  process.exit(1);
+});

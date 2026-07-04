@@ -7,7 +7,7 @@ import type {
   StatValidationResult,
   SseMessage,
 } from "@swingkiddo/txodds-client/dist/types";
-import { Config } from "./config";
+import { Config } from "../config";
 
 export interface TxLineSseEvent {
   id?: string;
@@ -27,6 +27,8 @@ export class TxLineClient extends EventEmitter {
   private client: TxOddsClient;
   private _lastEventAt: number = 0;
   private _reconnectAttempts: number = 0;
+  private _heartbeatTimer?: ReturnType<typeof setTimeout>;
+  private _stopped: boolean = false;
 
   constructor(config: Config) {
     super();
@@ -59,7 +61,7 @@ export class TxLineClient extends EventEmitter {
     this.client.setApiToken(token);
   }
 
-  async *streamScores(fixtureId?: number): AsyncGenerator<TxLineSseEvent> {
+  async *streamScores(): AsyncGenerator<TxLineSseEvent> {
     yield* this._streamWithReconnect(() => this.client.streamScores());
   }
 
@@ -134,7 +136,10 @@ export class TxLineClient extends EventEmitter {
       } catch (err) {
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       } finally {
+        this._stopped = true;
+        if (this._heartbeatTimer) clearTimeout(this._heartbeatTimer);
         await iterator.return?.(undefined);
+        this._stopped = false;
       }
 
       this.emit("disconnect");
@@ -148,17 +153,18 @@ export class TxLineClient extends EventEmitter {
 
   private _withHeartbeat<T>(promise: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      this._heartbeatTimer = setTimeout(() => {
+        if (this._stopped) return;
         reject(new Error("Heartbeat timeout"));
       }, 30000);
 
       promise.then(
         (val) => {
-          clearTimeout(timer);
+          clearTimeout(this._heartbeatTimer);
           resolve(val);
         },
         (err) => {
-          clearTimeout(timer);
+          clearTimeout(this._heartbeatTimer);
           reject(err);
         }
       );
