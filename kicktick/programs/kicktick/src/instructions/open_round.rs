@@ -11,7 +11,7 @@ pub struct OpenRound<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_MATCH, match_pda.fixture_id.to_le_bytes().as_ref()],
+        seeds = [SEED_MATCH, &match_pda.fixture_id.to_le_bytes()],
         bump = match_pda.bump,
     )]
     pub match_pda: Account<'info, Match_>,
@@ -20,7 +20,7 @@ pub struct OpenRound<'info> {
         init,
         payer = authority,
         space = Round::LEN,
-        seeds = [SEED_ROUND, match_pda.key().as_ref(), round_id.to_le_bytes().as_ref()],
+        seeds = [SEED_ROUND, match_pda.key().as_ref(), &round_id.to_le_bytes()],
         bump
     )]
     pub round: Account<'info, Round>,

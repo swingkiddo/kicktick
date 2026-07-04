@@ -21,7 +21,7 @@ pub struct InitMatch<'info> {
         init,
         payer = creator,
         space = Match_::LEN,
-        seeds = [SEED_MATCH, fixture_id.to_le_bytes().as_ref()],
+        seeds = [SEED_MATCH, &fixture_id.to_le_bytes()],
         bump
     )]
     pub match_pda: Account<'info, Match_>,
@@ -80,7 +80,8 @@ pub fn handler(
             0,
             &system_program::ID,
         );
-        let seeds = &[SEED_MATCH_VAULT, match_pda.key().as_ref(), &[vault_bump]];
+        let match_key = match_pda.key();
+    let seeds = &[SEED_MATCH_VAULT, match_key.as_ref(), &[vault_bump]];
         let signer_seeds = &[&seeds[..]];
         solana_program::program::invoke_signed(
             &ix,

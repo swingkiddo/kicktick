@@ -11,7 +11,7 @@ pub struct PlaceBet<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_MATCH, match_pda.fixture_id.to_le_bytes().as_ref()],
+        seeds = [SEED_MATCH, &match_pda.fixture_id.to_le_bytes()],
         bump = match_pda.bump,
     )]
     pub match_pda: Account<'info, Match_>,
@@ -22,7 +22,7 @@ pub struct PlaceBet<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_ROUND, match_pda.key().as_ref(), round_id.to_le_bytes().as_ref()],
+        seeds = [SEED_ROUND, match_pda.key().as_ref(), &round_id.to_le_bytes()],
         bump = round.bump,
     )]
     pub round: Account<'info, Round>,
@@ -31,7 +31,7 @@ pub struct PlaceBet<'info> {
         init_if_needed,
         payer = bettor,
         space = Position::LEN,
-        seeds = [SEED_POSITION, fixture_id.to_le_bytes().as_ref(), round_id.to_le_bytes().as_ref(), bettor.key().as_ref()],
+        seeds = [SEED_POSITION, &fixture_id.to_le_bytes(), &round_id.to_le_bytes(), bettor.key().as_ref()],
         bump
     )]
     pub position: Account<'info, Position>,

@@ -12,7 +12,7 @@ pub struct FundSponsor<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_MATCH, match_pda.fixture_id.to_le_bytes().as_ref()],
+        seeds = [SEED_MATCH, &match_pda.fixture_id.to_le_bytes()],
         bump = match_pda.bump,
     )]
     pub match_pda: Account<'info, Match_>,
@@ -65,14 +65,14 @@ pub struct SponsorRound<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_MATCH, match_pda.fixture_id.to_le_bytes().as_ref()],
+        seeds = [SEED_MATCH, &match_pda.fixture_id.to_le_bytes()],
         bump = match_pda.bump,
     )]
     pub match_pda: Account<'info, Match_>,
 
     #[account(
         mut,
-        seeds = [SEED_ROUND, match_pda.key().as_ref(), round.round_id.to_le_bytes().as_ref()],
+        seeds = [SEED_ROUND, match_pda.key().as_ref(), &round.round_id.to_le_bytes()],
         bump = round.bump,
     )]
     pub round: Account<'info, Round>,
