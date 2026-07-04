@@ -1,3 +1,13 @@
+---
+id: agents-index
+type: overview
+title: "Agent Navigation Map"
+service: overview
+depends_on: []
+related_to: []
+tags: [index, navigation, entry-point]
+---
+
 # KickTick — Agent Navigation Map
 
 > **Hackathon:** World Cup Hackathon — Superteam × Solana, powered by TxODDS
@@ -13,24 +23,6 @@ Sub-minute micro prediction markets on Solana. Create + settle markets in <60s u
 
 ---
 
-## Quick Start for Agents
-
-```
-docs/agent/
-├── AGENTS.md            ← this file — entry point
-├── STRUCTURE.md         ← every file with description (50+ files)
-├── ARCHITECTURE.md      ← component diagram, data flow, sequence
-├── CONSTANTS.md         ← program IDs, PDAs/seeds, tokens, configs
-├── INSTRUCTIONS.md      ← 6 on-chain instructions: accounts, args, logic
-├── WORKFLOWS.md         ← deploy, test, create market, settle, debug
-├── DEPENDENCIES.md      ← module dep graph, tech stack with versions
-└── ROADMAP.md           ← phases, status, risks, buffer
-```
-
-**Reading order for new agents:** AGENTS.md → STRUCTURE.md → CONSTANTS.md → INSTRUCTIONS.md → ARCHITECTURE.md
-
----
-
 ## Three Subsystems
 
 | # | Subsystem | Dir | Language | Purpose |
@@ -39,56 +31,48 @@ docs/agent/
 | 2 | **Relayer** | `relayer/` | Node/TS | Off-chain crank: SSE ingestion, market triggers, proof gathering, tx builder |
 | 3 | **Frontend** | `frontend/` | Next.js + React + Tailwind | UI with wallet, market cards, live odds |
 
-Plus **TypeScript SDK** (`kicktick/client/src/`) — wraps Anchor program + TxODDS client.
-
 ---
 
-## Key Files Quick Reference
+## Documentation Structure
 
-### On-chain (Rust)
-| File | Lines | Role |
-|------|-------|------|
-| `programs/kicktick/src/lib.rs` | 140 | Module router — wires 10 instructions, 5 state PDAs |
+```
+docs/agent/
+├── AGENTS.md                      ← this file (root index)
+├── overview/                      ← project context, architecture, roadmap
+│   ├── PROJECT.md                 ← hackathon context, goals, DNA
+│   ├── ARCHITECTURE.md            ← system-level data flow, components
+│   └── ROADMAP.md                 ← phases, timeline, status
+├── services/
+│   ├── program/                   ← Anchor smart contract (deep docs)
+│   │   ├── README.md              ← purpose, PDA overview, key concepts
+│   │   ├── ARCHITECTURE.md        ← account model, PDA seeds, state
+│   │   ├── INSTRUCTIONS.md        ← 12 instructions: accounts, args, logic
+│   │   ├── CONSTANTS.md           ← seeds, enums, config, errors, StatKey
+│   │   ├── BUILD.md               ← build, test, debug
+│   │   └── DEPLOY.md              ← deploy to devnet/mainnet via Docker
+│   ├── relayer/                   ← off-chain crank (stub)
+│   │   └── README.md              ← purpose, modules, current state
+│   └── frontend/                  ← Next.js UI (stub)
+│       └── README.md              ← components, demo-only state
+├── integration/                   ← cross-service docs
+│   ├── DATA-FLOW.md               ← end-to-end: TxLINE → relayer → chain → UI
+│   ├── DEPENDENCIES.md            ← tech stack, versions, dep graph
+│   └── ENVIRONMENT.md             ← program IDs, endpoints, env vars
+└── operations/                    ← how-to guides
+    ├── WORKFLOWS.md               ← deploy, add market type, debug
+    ├── STRUCTURE.md               ← full file tree
+    └── TROUBLESHOOTING.md         ← error codes, fixes, debug commands
+```
 
-### TypeScript SDK
-| File | Lines | Role |
-|------|-------|------|
-| `client/src/market-manager.ts` | 538 | KickTickManager class — createMarket, placeBet, settle, claim |
-| `client/src/txodds-oracle.ts` | 499 | TxOddsClient — auth, SSE, snapshots; SpikeDetector; shouldSettleYes |
+### Reading Order for New Agents
 
-### Relayer
-| File | Lines | Role |
-|------|-------|------|
-| `src/config.ts` | 45 | Env config loader (RPC, program IDs, tokens) |
-| `src/txline-auth.ts` | 138 | Guest JWT + API token activation |
-| `src/cpi-spike.ts` | 456 | CPI spike test — validate_stat feasibility |
-| `src/verify-tokens.ts` | 75 | TxL + USDT mint verification on devnet |
-| `src/index.ts` | 20 | Placeholder main loop |
+```
+AGENTS.md → overview/PROJECT.md → overview/ARCHITECTURE.md → services/program/README.md
+```
 
-### Frontend
-| File | Lines | Role |
-|------|-------|------|
-| `components/Header.tsx` | - | Nav + wallet connect (Phantom/Solflare) |
-| `components/MarketCard.tsx` | - | Market display, bet buttons, countdown |
-| `components/CreateMarketModal.tsx` | - | 2-step market creation modal |
-| `components/LiveOddsFeed.tsx` | 90 | Simulated live odds feed |
-| `lib/constants.ts` | 30 | Program IDs, network config |
-| `lib/WalletContext.tsx` | - | Solana wallet adapter provider |
+### Graph Metadata
 
-### Tests & Scripts
-| File | Lines | Role |
-|------|-------|------|
-| `kicktick/tests/kicktick.ts` | 208 | Native SOL tests: init → match → round → bet → settle → claim |
-| `scripts/txline-test.ts` | 238 | Full TxLINE API integration test |
-| `simulation.ts` | 204 | SpikeDetector + shouldSettleYes simulation |
-| `simulation.js` | 122 | Standalone JS simulation |
-
-### Docs
-| File | Lines | Role |
-|------|-------|------|
-| `docs/KickTick-Architecture.md` | 455 | System architecture with ASCII diagrams |
-| `docs/KickTick-MVP-Plan.md` | 799 | Detailed MVP plan, CPI spec, all market rules |
-| `KickTick-Backend-Roadmap.md` | 259 | Phased roadmap with task list |
+All docs carry YAML frontmatter (`id`, `type`, `service`, `depends_on`, `related_to`, `tags`) for graph-based navigation and dependency tracking.
 
 ---
 
@@ -108,6 +92,10 @@ Plus **TypeScript SDK** (`kicktick/client/src/`) — wraps Anchor program + TxOD
 ## Command Cheat Sheet
 
 ```bash
+# Scripts
+./scripts/build.sh [all|contracts|frontend|relayer] [dev|prod]  # Docker build
+./scripts/deploy.sh [devnet|mainnet] [priority_fee]              # Docker deploy
+
 # Anchor
 anchor build                          # Build program
 anchor deploy --provider.cluster devnet  # Deploy to devnet
@@ -117,19 +105,6 @@ anchor test                           # Run tests
 cd relayer && npx ts-node src/cpi-spike.ts  # Run CPI spike test
 cd relayer && npx ts-node src/verify-tokens.ts  # Check token mints
 
-# Client SDK
-cd kicktick/client && npx ts-node src/txodds-oracle.ts  # Test TxODDS client
-
-# Scripts
-cd scripts && npx ts-node txline-test.ts  # Full TxLINE integration test
-npx ts-node simulation.ts               # Run simulation
-
 # Frontend
 cd frontend && npm run dev              # Dev server
 ```
-
----
-
-## Git Branch
-
-`feat/backend` — 12 commits, Phase 0 completed.

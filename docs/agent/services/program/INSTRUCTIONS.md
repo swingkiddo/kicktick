@@ -1,3 +1,17 @@
+---
+id: program-instructions
+type: reference
+title: "On-Chain Instructions"
+service: program
+depends_on:
+  - program-architecture
+  - program-constants
+related_to:
+  - program-build
+  - integration-data-flow
+tags: [instructions, CPI, settlement, accounts]
+---
+
 # KickTick — On-Chain Instructions (Phase 1)
 
 > 10 instructions across `kicktick/programs/kicktick/src/instructions/`. Pure SOL, no SPL tokens. Anchor program on devnet.

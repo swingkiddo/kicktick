@@ -1,3 +1,14 @@
+---
+id: operations-structure
+type: reference
+title: "Full Project Structure"
+service: operations
+depends_on: []
+related_to:
+  - overview-architecture
+tags: [structure, files, tree]
+---
+
 # KickTick — Full Project Structure
 
 > Every source file with purpose. Excludes `node_modules/`, `target/`, `build artifacts`.
@@ -64,13 +75,9 @@
 - `fund_sponsor` — deposit SOL into SponsorVault (+ match_vault for rent)
 - `sponsor_round` — allocate sponsor liquidity to round
 
-### `client/` — TypeScript SDK
-| Path | Lines | Purpose |
-|------|-------|---------|
-| `src/market-manager.ts` | 538 | `KickTickManager` — SDK placeholder (old createMarket/placeBet/settleMarket signatures) |
-| `src/txodds-oracle.ts` | 499 | `TxOddsClient` — auth, SSE streams, REST snapshots, Merkle proofs. `SpikeDetector` — 60s window, 15% threshold. `shouldSettleYes()` |
-| `package.json` | - | Dependencies: @anchor-lang/core ^1.0.0, @solana/web3.js ^1.98 |
-| `tsconfig.json` | - | TS config |
+### `client/` — TypeScript SDK (removed)
+
+The `client/` directory previously contained a TypeScript SDK (`market-manager.ts`, `txodds-oracle.ts`). These files have been removed. The directory now only contains `node_modules/` and no source code.
 
 ### `tests/`
 | Path | Lines | Purpose |
@@ -154,7 +161,6 @@
 |--------|-------|
 | Source files (excl. generated) | ~50 |
 | Rust (on-chain) | lib.rs 140 + state 5 + instructions 10 + constants 48 + errors 102 |
-| TS/JS (client SDK) | 1,037 lines |
 | TS (relayer) | 674 lines |
 | TSX (frontend) | ~400 lines |
 | Documentation | ~1,500 lines |

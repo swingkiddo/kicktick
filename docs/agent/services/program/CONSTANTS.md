@@ -1,3 +1,16 @@
+---
+id: program-constants
+type: reference
+title: "Constants & Configuration"
+service: program
+depends_on: []
+related_to:
+  - program-instructions
+  - program-architecture
+  - integration-environment
+tags: [constants, seeds, enums, errors, StatKey]
+---
+
 # KickTick — Constants & Seeds (Phase 1)
 
 > Single source of truth for addresses, seeds, config values. Read before any on-chain interaction.
@@ -68,8 +81,6 @@ Defined in: `state/round.rs:82-89`
 | Default deadline seconds | **120 seconds** | `constants.rs:21` |
 | Min round liquidity | **0.01 SOL** (10M lamports) | `constants.rs:25` |
 | CPI compute units | **1,400,000** | `constants.rs:28` |
-| Spike threshold (oracle) | **15%** | `client/txodds-oracle.ts:394` |
-| Spike window (oracle) | **60 seconds** | `client/txodds-oracle.ts:397` |
 
 ---
 
@@ -110,42 +121,3 @@ Defined in: `constants.rs:31-46`
 | Solana Devnet RPC | `https://api.devnet.solana.com` |
 | TxLINE Devnet API | `https://txline-dev.txodds.com` |
 | TxLINE Mainnet API | `https://txline.txodds.com` |
-
----
-
-## Error Codes (Phase 1)
-
-| Code | Name | Message |
-|------|------|---------|
-| 6000 | `Unauthorized` | only admin |
-| 6001 | `ConfigAlreadyInitialized` | |
-| 6002 | `ConfigNotInitialized` | |
-| 6003 | `InvalidFixtureId` | |
-| 6004 | `InvalidDuration` | 15-300s |
-| 6005 | `RoundNotOpen` | |
-| 6006 | `DeadlinePassed` | |
-| 6007 | `ZeroAmount` | amount > 0 |
-| 6008 | `InvalidSide` | side <= 2 |
-| 6009 | `Overflow` | |
-| 6010 | `DivisionByZero` | |
-| 6011 | `AlreadyClaimed` | |
-| 6012 | `NotWinner` | |
-| 6013 | `InvalidSettlementMethod` | |
-| 6014 | `CpiFailed` | |
-| 6015 | `PredicateFailed` | |
-| 6016 | `FinalityDelayNotMet` | |
-
-Defined in: `errors.rs`
-
----
-
-## Account Sizes
-
-| Account | Space (bytes) |
-|---------|---------------|
-| `Config` | 8+32+32+32+8+8+1 = 81 |
-| `Match_` | ~250 |
-| `Round` | 8+32+8+1+31+1+9+17+1+1+8*7+2+1+1 = 143 |
-| `Position` | 8+32+8+8+1+8+1+1 = 65 |
-
-Defined in: `state/config.rs`, `state/match_.rs`, `state/round.rs`, `state/position.rs`

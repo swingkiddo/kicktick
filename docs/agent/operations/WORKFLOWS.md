@@ -1,28 +1,37 @@
+---
+id: operations-workflows
+type: howto
+title: "Agent Workflows"
+service: operations
+depends_on:
+  - program-build
+related_to:
+  - program-instructions
+  - operations-troubleshooting
+tags: [workflows, deploy, test, debug]
+---
+
 # KickTick — Agent Workflows
 
 > Common scenarios an agent will execute during development.
 
 ---
 
-## 1. Full Deploy Cycle (Anchor → Devnet)
+## 1. Full Deploy Cycle (Docker → Devnet)
 
 ```bash
-# 1. Build
-anchor build
+# 1. Build Docker image
+./scripts/build.sh contracts
 
-# 2. Deploy (deploy.sh sets --with-compute-unit-price 10000)
-./deploy.sh
+# 2. Deploy (Docker-based, sets --with-compute-unit-price 10000)
+./scripts/deploy.sh
 
-# 3. Copy new IDL to client
-cp target/idl/kicktick.json kicktick/client/src/idl/
-cp target/types/kicktick.ts kicktick/client/src/types/
-
-# 4. Update program ID in:
+# 3. Update program ID in:
 #    - programs/kicktick/src/lib.rs:8
 #    - frontend/lib/constants.ts:10
 #    - relayer/.env (KICKTICK_PROGRAM_ID)
 
-# 5. Run tests
+# 4. Run tests
 anchor test --skip-deploy
 ```
 
@@ -30,6 +39,8 @@ anchor test --skip-deploy
 - `lib.rs:8` — `declare_id!("...")`
 - `frontend/lib/constants.ts:10` — `kicktickProgramId`
 - `relayer/src/config.ts:27` — `KICKTICK_PROGRAM_ID` env
+
+See [program/DEPLOY.md](../services/program/DEPLOY.md) for full details.
 
 ---
 
@@ -48,8 +59,7 @@ PenaltyShot, VARCheck
 **To add a new type:**
 1. Add variant to `MarketType` enum in `state/round.rs`
 2. Add statKey mapping in `settle_round` handler
-3. Update TS enum in SDK if exposed
-4. Add test case in `tests/kicktick.ts`
+3. Add test case in `tests/kicktick.ts`
 
 ---
 
@@ -142,94 +152,3 @@ solana account <PDA> --output json --url devnet
 # Get program logs
 solana confirm -v <TX_SIGNATURE> --url devnet
 ```
-
----
-
-## 7. TxLINE API Auth Flow
-
-```
-1. POST /auth/guest/start  →  JWT
-2. POST /api/token/activate (with signed message)  →  API token
-3. All subsequent requests: Header "Authorization: Bearer <JWT>"
-                            Header "X-Api-Token: <API_TOKEN>"
-```
-
-**Implemented in:** `relayer/src/txline-auth.ts` (uses `@swingkiddo/txodds-client` SDK)
-
-**Test script:** `scripts/txline-test.ts` — full flow with devnet faucet
-
----
-
-## 8. Run CPI Spike Test
-
-```bash
-cd relayer
-# Set env vars
-export TXLINE_JWT=<your_jwt>
-export TXLINE_API_TOKEN=<your_token>
-
-# Run spike test
-npx ts-node src/cpi-spike.ts
-```
-
-This validates:
-- TxLINE API returns well-formed `StatValidationResult`
-- Proof format matches CPI expectations
-- PDA derivation matches txoracle seeds
-- Programs exist on devnet
-
----
-
-## 9. Verify Token Mints
-
-```bash
-cd relayer
-npx ts-node src/verify-tokens.ts
-```
-
-Expected output:
-```
-✅ TxL: 4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG
-   Program: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb (Token-2022)
-   Decimals: 9
-
-✅ USDT: ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh
-   Program: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA (Token)
-```
-
----
-
-## 10. Run Full TxLINE Integration Test
-
-```bash
-cd scripts
-npx ts-node txline-test.ts
-```
-
-Tests: faucet USDT, auth, subscription, fixtures, odds snapshot, SSE stream (3 events timeout), stat-validation, scores stream.
-
----
-
-## 11. Update Client SDK Program ID
-
-The IDL embedded in `market-manager.ts:68-228` uses a placeholder `PROGRAM_ID` at line 230.
-
-After deploy, update:
-1. `program_id` in `openclaw.json` or env
-2. `frontend/lib/constants.ts:10` — `kicktickProgramId`
-3. `relayer/.env` — `KICKTICK_PROGRAM_ID`
-4. `kicktick/Anchor.toml:8` — `kicktick = "..."`
-
----
-
-## 12. Frontend Development (Current State)
-
-**Current:** Demo data only. No on-chain integration yet.
-
-**Components use hardcoded demo markets** in `app/page.tsx`.
-
-**To connect to on-chain:**
-1. Replace demo data with `KickTickManager` calls
-2. Connect wallet via `WalletContext.tsx`
-3. Use `Connection` to devnet for account fetches
-4. Add WebSocket listener to `relayer/ws-server.ts`

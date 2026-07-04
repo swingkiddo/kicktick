@@ -1,3 +1,15 @@
+---
+id: integration-dependencies
+type: reference
+title: "Module Dependencies & Tech Stack"
+service: integration
+depends_on: []
+related_to:
+  - overview-architecture
+  - integration-environment
+tags: [dependencies, tech-stack, versions]
+---
+
 # KickTick — Module Dependencies & Tech Stack
 
 ---
@@ -33,14 +45,7 @@
 │  tests/kicktick.ts                                       │
 │    └── @coral-xyz/anchor (provider, program, assert)     │
 │                                                          │
-│  client/src/market-manager.ts                            │
-│    ├── @solana/web3.js (Connection, Keypair, PublicKey)  │
-│    ├── @anchor-lang/core (AnchorProvider, Program)       │
-│    └── ./txodds-oracle (TxOddsClient, SpikeDetector)     │
-│                                                          │
-│  client/src/txodds-oracle.ts                             │
-│    ├── @solana/web3.js (Connection, PublicKey, Tx)       │
-│    └── @noble/curves/ed25519 (message signing)           │
+│  client/ — TypeScript SDK removed (only node_modules/)   │
 └──────────┬──────────────────────────────────────────────┘
            │ depends on (for CPI settlement address)
            ▼
@@ -98,8 +103,6 @@ External:
 | File | Imports From | Depended By |
 |------|-------------|-------------|
 | `programs/kicktick/src/lib.rs` | anchor-lang, borsh | — (deployed to Solana) |
-| `client/src/txodds-oracle.ts` | web3.js, @noble/curves | `market-manager.ts` |
-| `client/src/market-manager.ts` | web3.js, @anchor-lang/core, txodds-oracle | frontend, relayer (planned) |
 | `relayer/src/config.ts` | dotenv, web3.js | `cpi-spike.ts`, `index.ts`, `txline-auth.ts` |
 | `relayer/src/txline-auth.ts` | @swingkiddo/txodds-client | futher relayer modules |
 | `relayer/src/cpi-spike.ts` | txodds-client, web3.js, config | — (standalone test) |
@@ -113,11 +116,10 @@ External:
 
 ## Version Conflicts to Watch
 
-| Package | Client (client/) | Relayer (relayer/) | Notes |
-|---------|-----------------|--------------------|-------|
+| Package | Relayer (relayer/) | Frontend (frontend/) | Notes |
+|---------|--------------------|----------------------|-------|
 | `@solana/web3.js` | `^1.98` | `^1.98` | Aligned |
-| `@anchor-lang/core` | `^1.0.0` | — | Same as Anchor version |
-| `@swingkiddo/txodds-client` | — | GitHub pkg | Only in relayer |
+| `@swingkiddo/txodds-client` | GitHub pkg | — | Only in relayer |
 
 ---
 
@@ -126,7 +128,6 @@ External:
 | Dir | `package.json` location |
 |-----|------------------------|
 | Anchor workspace | `kicktick/Cargo.toml` (Rust deps) |
-| TypeScript SDK | `kicktick/client/package.json` |
 | Relayer | `relayer/package.json` |
 | Frontend | `frontend/package.json` |
 | Scripts | `scripts/package.json` |

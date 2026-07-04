@@ -1,3 +1,14 @@
+---
+id: overview-roadmap
+type: overview
+title: "Development Roadmap"
+service: overview
+depends_on:
+  - overview-project
+related_to: []
+tags: [roadmap, phases, timeline]
+---
+
 # KickTick — Development Roadmap
 
 > **Deadline:** July 19, 2026
