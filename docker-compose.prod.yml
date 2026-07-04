@@ -1,0 +1,44 @@
+# KickTick — Production Environment
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+
+version: "3.9"
+
+services:
+  relayer:
+    build:
+      context: ./relayer
+      dockerfile: Dockerfile
+      target: prod
+    container_name: kicktick-relayer-prod
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    networks:
+      - kicktick-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+    container_name: kicktick-frontend-prod
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_SOLANA_RPC_URL=${SOLANA_RPC_URL}
+      - NEXT_PUBLIC_KICKTICK_PROGRAM_ID=${KICKTICK_PROGRAM_ID}
+      - NEXT_PUBLIC_TXORACLE_PROGRAM_ID=${TXORACLE_PROGRAM_ID}
+    restart: unless-stopped
+    networks:
+      - kicktick-net
+
+networks:
+  kicktick-net:
+    driver: bridge
