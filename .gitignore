@@ -34,7 +34,10 @@ deployment-*.json
 
 skills-lock.json
 opencode.json
-scripts/
+
 docs/*.md
 docs/*.pdf
+docs/superpowers
 .agents
+kicktick/test-ledger
+test_scripts
