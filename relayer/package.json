@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
   },
   "dependencies": {
     "@swingkiddo/txodds-client": "github:swingkiddo/txodds-client",
@@ -18,6 +19,11 @@
     "typescript": "^5.5.0",
     "ts-node": "^10.9.0",
     "@types/ws": "^8.5.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "mocha": "^10.0.0",
+    "chai": "^4.5.0",
+    "ts-mocha": "^10.0.0",
+    "@types/mocha": "^10.0.0",
+    "@types/chai": "^4.3.0"
   }
 }
