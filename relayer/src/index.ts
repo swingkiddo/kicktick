@@ -1,6 +1,14 @@
+import fs from "fs";
+import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  getOrCreateAssociatedTokenAccount,
+  TOKEN_2022_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { loadConfig } from "./config";
 import { TxLineClient } from "./clients/txline-client";
 import { AnchorClient } from "./clients/anchor-client";
+import { activateApiToken } from "./clients/txline-auth";
 import { ProofGatherer } from "./settlement/proof-gatherer";
 import { Crank, CrankStatus } from "./settlement/crank";
 import { WsServer, WsServerMessage } from "./api/ws-server";
@@ -44,8 +52,7 @@ async function main(): Promise<void> {
   console.log(`  TxLINE Token:    ${config.txlineApiToken ? "set" : "missing"}`);
 
   if (!config.txlineJwt && !config.txlineApiToken) {
-    console.error("FATAL: No TxLINE credentials configured.");
-    process.exit(1);
+    console.warn("No TxLINE credentials configured — attempting guest auth...");
   }
 
   const wsServer = new WsServer(config.wsPort);
@@ -56,11 +63,60 @@ async function main(): Promise<void> {
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
   const marketTrigger = new MarketTrigger();
 
-  if (!config.txlineJwt) {
+  let jwt = config.txlineJwt;
+  if (!jwt) {
     console.log("Authenticating with TxLINE...");
-    const jwt = await txlineClient.authenticate();
+    jwt = await txlineClient.authenticate();
     txlineClient.setJwt(jwt);
     console.log("TxLINE JWT obtained.");
+  }
+
+  if (!config.txlineApiToken) {
+    console.log("Activating API token (World Cup free tier)...");
+    const keypairPath = config.solanaKeypairPath.replace(/^~/, process.env.HOME || "");
+    const keypairData = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
+    const keypair = Keypair.fromSecretKey(new Uint8Array(keypairData));
+    try {
+      const connection = new Connection(config.solanaRpcUrl, "confirmed");
+      await getOrCreateAssociatedTokenAccount(
+        connection,
+        keypair,
+        config.txlMint,
+        keypair.publicKey,
+        false,
+        undefined,
+        undefined,
+        TOKEN_2022_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
+      console.log("TxL token account ready.");
+
+      const solBalance = await connection.getBalance(keypair.publicKey);
+      console.log(`  SOL balance: ${solBalance / LAMPORTS_PER_SOL} SOL`);
+
+      const activation = await activateApiToken(jwt, keypair, {
+        apiHost: config.txlineApiHost,
+        serviceLevelId: 1,
+        solanaRpcUrl: config.solanaRpcUrl,
+      });
+      const { txSig, apiToken } = activation;
+      console.log(`  Subscribe txSig: ${txSig}`);
+      const txStatus = await connection.getSignatureStatus(txSig);
+      console.log(`  Tx confirmed: ${txStatus?.value?.confirmationStatus ?? "no"}`);
+
+      txlineClient.setApiToken(apiToken);
+      console.log("API token set, testing...");
+      try {
+        const testFixtures = await txlineClient.getFixtures(config.competitionId);
+        console.log(`  API token OK: ${testFixtures.length} fixtures returned`);
+      } catch (e) {
+        console.warn(`  API token rejected: ${e instanceof Error ? e.message : e}`);
+        throw e;
+      }
+    } catch (err) {
+      console.error("Failed to activate API token:", err instanceof Error ? err.message : err);
+      console.warn("Continuing with limited guest access...");
+    }
   }
 
   crank.on("status", (status: CrankStatus) => {
