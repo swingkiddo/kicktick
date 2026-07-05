@@ -23,8 +23,16 @@ export interface CrankOptions {
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 
-function outcomeToWinner(outcome: "Yes" | "No"): number {
-  return outcome === "Yes" ? 1 : 2;
+function outcomeToWinner(outcome: string): number {
+  switch (outcome) {
+    case "Home": return 1;
+    case "Away": return 2;
+    case "NoGoal": return 3;
+    case "Yes": return 1;
+    case "No": return 2;
+    case "Cancelled": return 0;
+    default: return 2;
+  }
 }
 
 export class Crank extends EventEmitter {

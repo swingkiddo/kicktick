@@ -364,7 +364,7 @@ export class AnchorClient {
   async settleOffchainRound(
     roundId: number,
     matchPda: PublicKey,
-    outcome: "Yes" | "No",
+    outcome: RoundOutcome,
     winner: number,
   ): Promise<string> {
     const [roundPda] = AnchorClient.deriveRoundPda(

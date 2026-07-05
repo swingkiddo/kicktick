@@ -204,7 +204,10 @@ async function main(): Promise<void> {
           continue;
         }
 
-        fixtureWatcher.processEvent(soccerEvent, fixtureId);
+        const matchState = fixtureWatcher.processEvent(soccerEvent, fixtureId);
+        if (matchState) {
+          marketTrigger.processEvent(soccerEvent, fixtureId, matchState);
+        }
       } catch (err) {
         console.error("SSE event error:", err instanceof Error ? err.message : err);
       }
@@ -228,9 +231,22 @@ async function main(): Promise<void> {
     }
   }, 5000);
 
+  const cronTimer = setInterval(() => {
+    const allFixtures = fixtureWatcher.getAllFixtures();
+    for (const matchState of allFixtures) {
+      const fixtureId = matchState.fixtureId;
+      try {
+        marketTrigger.runCronCheck(fixtureId, matchState);
+      } catch (err) {
+        console.error(`Cron window check error [${fixtureId}]:`, err instanceof Error ? err.message : err);
+      }
+    }
+  }, 60_000);
+
   async function shutdown(): Promise<void> {
     console.log("\nShutting down...");
     clearInterval(timeoutTimer);
+    clearInterval(cronTimer);
     for (const ms of fixtureWatcher.getAllFixtures()) {
       marketTrigger.stopCronWindows(ms.fixtureId);
     }

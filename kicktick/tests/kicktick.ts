@@ -253,4 +253,33 @@ describe('KickTick (Native SOL)', () => {
       'winner must receive SOL',
     );
   });
+
+  describe('Negative path tests', () => {
+    it('open_round sets settlement_model correctly per market type', async () => {
+      // TODO: Test that different market types set correct settlement_model
+      // OffChain: PenaltyShot, VARCheck, NextGoalSide, NextCorner, NextYellowCard
+      // OnChain: GoalInWindow, CornerInWindow, YellowCardInWindow, RedCardInMatch, PenaltyShootoutShot
+      this.skip();
+    });
+
+    it('settle_offchain_round accepts Home | Away | NoGoal | Yes | No | Cancelled', async () => {
+      // TODO: Test all valid offchain outcomes
+      this.skip();
+    });
+
+    it('settle_round rejects offchain market with InvalidSettlementMethod', async () => {
+      // TODO: Attempt settle_round on offchain market, expect InvalidSettlementMethod error
+      this.skip();
+    });
+
+    it('settle_offchain_round rejects onchain market', async () => {
+      // TODO: Attempt settle_offchain_round on onchain market, expect error
+      this.skip();
+    });
+
+    it('place_bet rejects side = 3 on non-shootout market', async () => {
+      // TODO: Attempt place_bet with side=3 on non-PenaltyShootout market, expect error
+      this.skip();
+    });
+  });
 });

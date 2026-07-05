@@ -148,8 +148,8 @@ export class ProofGatherer {
    * ScoresRecord that triggered this event. This method returns 0 as a
    * placeholder until the event type is extended.
    */
-  getTriggerSeq(_event: SoccerEvent): number {
-    return 0;
+  getTriggerSeq(event: SoccerEvent): number {
+    return (event as { seq?: number }).seq ?? 0;
   }
 
   /**

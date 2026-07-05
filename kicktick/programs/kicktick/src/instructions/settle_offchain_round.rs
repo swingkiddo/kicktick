@@ -33,7 +33,12 @@ pub fn handler(ctx: Context<SettleOffchainRound>, outcome: RoundOutcome, winner:
     require!(clock.unix_timestamp >= round.expires_at, KickTickError::RoundStillActive);
 
     require!(
-        outcome == RoundOutcome::Yes || outcome == RoundOutcome::No || outcome == RoundOutcome::Cancelled,
+        outcome == RoundOutcome::Yes
+            || outcome == RoundOutcome::No
+            || outcome == RoundOutcome::Cancelled
+            || outcome == RoundOutcome::Home
+            || outcome == RoundOutcome::Away
+            || outcome == RoundOutcome::NoGoal,
         KickTickError::InvalidSide
     );
 

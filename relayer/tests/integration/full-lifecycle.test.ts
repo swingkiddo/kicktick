@@ -6,6 +6,24 @@ import { ChildProcess, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { MarketTrigger, TriggerAction } from "../../src/market/triggers";
+import {
+  SoccerAction,
+  StatusId,
+  MarketType as EventMarketType,
+  GoalType,
+  VarType,
+  GoalEvent,
+  CornerEvent,
+  YellowCardEvent,
+  RedCardEvent,
+  PenaltyOutcomeEvent,
+  VarCheckEvent,
+  VarEndEvent,
+  StatusChangeEvent,
+  SoccerEvent,
+} from "../../src/market/event-parser";
+import type { MatchState } from "../../src/market/fixture-watcher";
 
 const PROGRAM_ID = DEFAULT_KICKTICK_PROGRAM_ID.toBase58();
 const PROGRAM_SO = path.resolve(__dirname, "../../../kicktick/target/deploy/kicktick.so");
@@ -225,5 +243,151 @@ describe("Full lifecycle (20 bettors)", function () {
   it("vault is drained after all claims", async () => {
     const vaultAfter = await connection.getBalance(vaultPda);
     expect(vaultAfter).to.be.lessThan(1_000_000);
+  });
+});
+
+const TRIGGER_FIXTURE_ID = 88888;
+
+function makeMatchState(overrides?: Partial<MatchState>): MatchState {
+  return {
+    fixtureId: TRIGGER_FIXTURE_ID,
+    matchPda: PublicKey.findProgramAddressSync(
+      [Buffer.from("match"), Buffer.alloc(8)],
+      DEFAULT_KICKTICK_PROGRAM_ID,
+    )[0],
+    matchPdaBump: 255,
+    status: StatusId.FirstHalf,
+    currentPeriod: "H1",
+    homeScore: 0,
+    awayScore: 0,
+    matchClockMs: 600_000,
+    lastEventAt: Date.now(),
+    roundCounter: 0,
+    participants: { home: "Team A", away: "Team B" },
+    ...overrides,
+  };
+}
+
+describe("Event-driven lifecycle", () => {
+  let trigger: MarketTrigger;
+  let state: MatchState;
+  let emittedActions: TriggerAction[][];
+
+  beforeEach(() => {
+    trigger = new MarketTrigger();
+    state = makeMatchState();
+    emittedActions = [];
+    trigger.on("actions", (actions: TriggerAction[]) => {
+      emittedActions.push(actions);
+    });
+  });
+
+  function flat(): TriggerAction[] {
+    return emittedActions.flat();
+  }
+
+  it("FirstHalf opens NextGoalSide and RedCardInMatch", () => {
+    const evt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.FirstHalf };
+    trigger.processEvent(evt, TRIGGER_FIXTURE_ID, state);
+
+    const opens = flat().filter((a) => a.type === "open_round");
+    const types = opens.map((a) => (a as any).marketType);
+    expect(types).to.include(EventMarketType.NextGoalSide);
+    expect(types).to.include(EventMarketType.RedCardInMatch);
+  });
+
+  it("Goal settles NextGoalSide as Home and opens new round", () => {
+    const startEvt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.FirstHalf };
+    trigger.processEvent(startEvt, TRIGGER_FIXTURE_ID, state);
+    emittedActions = [];
+
+    const goal: GoalEvent = { action: SoccerAction.Goal, participant: 1, goalType: GoalType.Shot };
+    trigger.processEvent(goal, TRIGGER_FIXTURE_ID, state);
+
+    const all = flat();
+    const settle = all.find(
+      (a) => a.type === "settle_offchain" && (a as any).marketType === EventMarketType.NextGoalSide,
+    );
+    expect(settle).to.exist;
+    expect((settle as any).outcome).to.equal("Home");
+
+    const opens = all.filter(
+      (a) => a.type === "open_round" && (a as any).marketType === EventMarketType.NextGoalSide,
+    );
+    expect(opens).to.have.length(1);
+  });
+
+  it("VAR end settles VARCheck as No on Stands", () => {
+    const varEvt: VarCheckEvent = { action: SoccerAction.Var, varType: VarType.Goal };
+    trigger.processEvent(varEvt, TRIGGER_FIXTURE_ID, state);
+    emittedActions = [];
+
+    const varEnd: VarEndEvent = { action: SoccerAction.VarEnd, outcome: "Stands" };
+    trigger.processEvent(varEnd, TRIGGER_FIXTURE_ID, state);
+
+    const settle = flat().find(
+      (a) => a.type === "settle_offchain" && (a as any).marketType === EventMarketType.VARCheck,
+    );
+    expect(settle).to.exist;
+    expect((settle as any).outcome).to.equal("No");
+  });
+
+  it("Penalty outcome in shootout mode settles PenaltyShootoutShot onchain", () => {
+    const soEvt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.PenaltyShootout };
+    trigger.processEvent(soEvt, TRIGGER_FIXTURE_ID, state);
+
+    const penalty: SoccerEvent = { action: SoccerAction.Penalty, participant: 1 } as any;
+    trigger.processEvent(penalty, TRIGGER_FIXTURE_ID, state);
+    emittedActions = [];
+
+    const outcome: PenaltyOutcomeEvent = {
+      action: SoccerAction.PenaltyOutcome,
+      participant: 1,
+      outcome: "Scored",
+    };
+    trigger.processEvent(outcome, TRIGGER_FIXTURE_ID, state);
+
+    const all = flat();
+
+    const penSettle = all.find(
+      (a) => a.type === "settle_offchain" && (a as any).marketType === EventMarketType.PenaltyShot,
+    );
+    expect(penSettle).to.exist;
+    expect((penSettle as any).outcome).to.equal("Yes");
+
+    const soSettle = all.find(
+      (a) => a.type === "settle_onchain" && (a as any).marketType === EventMarketType.PenaltyShootoutShot,
+    );
+    expect(soSettle).to.exist;
+
+    const soOpen = all.find(
+      (a) => a.type === "open_round" && (a as any).marketType === EventMarketType.PenaltyShootoutShot,
+    );
+    expect(soOpen).to.exist;
+  });
+
+  it("FullTime triggers matchEndCleanup with correct settle types", () => {
+    const startEvt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.FirstHalf };
+    trigger.processEvent(startEvt, TRIGGER_FIXTURE_ID, state);
+    emittedActions = [];
+
+    const endEvt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.FullTime };
+    trigger.processEvent(endEvt, TRIGGER_FIXTURE_ID, state);
+
+    const all = flat();
+
+    const redCardSettle = all.find(
+      (a) => a.type === "settle_onchain" && (a as any).marketType === EventMarketType.RedCardInMatch,
+    );
+    expect(redCardSettle).to.exist;
+
+    const nextGoalSettle = all.find(
+      (a) => a.type === "settle_offchain" && (a as any).marketType === EventMarketType.NextGoalSide,
+    );
+    expect(nextGoalSettle).to.exist;
+    expect((nextGoalSettle as any).outcome).to.equal("No");
+
+    const active = trigger.getActiveRounds(TRIGGER_FIXTURE_ID);
+    expect(active).to.have.length(0);
   });
 });

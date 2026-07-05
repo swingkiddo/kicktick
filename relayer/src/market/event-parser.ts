@@ -133,17 +133,20 @@ export interface GoalEvent {
   participant?: 1 | 2;
   goalType: GoalType;
   playerId?: number;
+  seq?: number;
 }
 
 export interface CornerEvent {
   action: SoccerAction.Corner;
   participant?: 1 | 2;
+  seq?: number;
 }
 
 export interface YellowCardEvent {
   action: SoccerAction.YellowCard;
   participant?: 1 | 2;
   playerId?: number;
+  seq?: number;
 }
 
 export interface RedCardEvent {
@@ -151,11 +154,13 @@ export interface RedCardEvent {
   participant?: 1 | 2;
   playerId?: number;
   redCardType: "StraightRed" | "SecondYellow";
+  seq?: number;
 }
 
 export interface PenaltyAwardedEvent {
   action: SoccerAction.Penalty;
   participant?: 1 | 2;
+  seq?: number;
 }
 
 export interface PenaltyOutcomeEvent {
@@ -163,41 +168,48 @@ export interface PenaltyOutcomeEvent {
   participant?: 1 | 2;
   outcome: "Scored" | "Missed" | "Retake";
   followsAction?: unknown;
+  seq?: number;
 }
 
 export interface ShotEvent {
   action: SoccerAction.Shot;
   participant?: 1 | 2;
   outcome: "OnTarget" | "OffTarget" | "Woodwork" | "Blocked";
+  seq?: number;
 }
 
 export interface FreeKickEvent {
   action: SoccerAction.FreeKick;
   participant?: 1 | 2;
   freeKickType?: string;
+  seq?: number;
 }
 
 export interface ThrowInEvent {
   action: SoccerAction.ThrowIn;
   participant?: 1 | 2;
   throwInType?: string;
+  seq?: number;
 }
 
 export interface GoalKickEvent {
   action: SoccerAction.GoalKick;
   participant?: 1 | 2;
+  seq?: number;
 }
 
 export interface VarCheckEvent {
   action: SoccerAction.Var;
   participant?: 1 | 2;
   varType: VarType;
+  seq?: number;
 }
 
 export interface VarEndEvent {
   action: SoccerAction.VarEnd;
   participant?: 1 | 2;
   outcome: "Stands" | "Overturned";
+  seq?: number;
 }
 
 export interface PossibleEvent {
@@ -209,29 +221,34 @@ export interface PossibleEvent {
   possibleYellowCard?: boolean;
   possibleRedCard?: boolean;
   possibleVar?: boolean;
+  seq?: number;
 }
 
 export interface StatusChangeEvent {
   action: SoccerAction.Status;
   participant?: 1 | 2;
   statusId: StatusId;
+  seq?: number;
 }
 
 export interface ScoreAdjustmentEvent {
   action: SoccerAction.ScoreAdjustment;
   participant?: 1 | 2;
   score: Record<string, unknown>;
+  seq?: number;
 }
 
 export interface AdditionalTimeEvent {
   action: SoccerAction.AdditionalTime;
   participant?: 1 | 2;
   minutes: number;
+  seq?: number;
 }
 
 export interface KickoffEvent {
   action: SoccerAction.Kickoff;
   participant?: 1 | 2;
+  seq?: number;
 }
 
 export interface SubstitutionEvent {
@@ -239,6 +256,7 @@ export interface SubstitutionEvent {
   participant?: 1 | 2;
   playerInId: number;
   playerOutId: number;
+  seq?: number;
 }
 
 export interface InjuryEvent {
@@ -246,12 +264,14 @@ export interface InjuryEvent {
   participant?: 1 | 2;
   playerId?: number;
   outcome?: "OnPitch" | "OffPitch" | "NotReturning";
+  seq?: number;
 }
 
 export interface SuspendEvent {
   action: SoccerAction.Suspend;
   participant?: 1 | 2;
   reliable: boolean;
+  seq?: number;
 }
 
 export type SoccerEvent =
@@ -325,16 +345,18 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         participant,
         goalType: parseGoalType(raw.dataSoccer?.GoalType),
         playerId: raw.dataSoccer?.PlayerId,
+        seq: raw.seq,
       };
 
     case SoccerAction.Corner:
       return {
         action: SoccerAction.Corner,
         participant,
+        seq: raw.seq,
       };
 
     case SoccerAction.YellowCard:
-      return { action: SoccerAction.YellowCard, participant, playerId: raw.dataSoccer?.PlayerId };
+      return { action: SoccerAction.YellowCard, participant, playerId: raw.dataSoccer?.PlayerId, seq: raw.seq };
 
     case SoccerAction.RedCard:
       return {
@@ -342,10 +364,11 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         participant,
         playerId: raw.dataSoccer?.PlayerId,
         redCardType: parseRedCardType(raw.dataSoccer?.Type),
+        seq: raw.seq,
       };
 
     case SoccerAction.Penalty:
-      return { action: SoccerAction.Penalty, participant };
+      return { action: SoccerAction.Penalty, participant, seq: raw.seq };
 
     case SoccerAction.PenaltyOutcome:
       return {
@@ -353,6 +376,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         participant,
         outcome: parsePenaltyOutcome(raw.dataSoccer?.Outcome),
         followsAction: undefined,
+        seq: raw.seq,
       };
 
     case SoccerAction.Shot:
@@ -360,6 +384,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         action: SoccerAction.Shot,
         participant,
         outcome: parseShotOutcome(raw.dataSoccer?.Outcome),
+        seq: raw.seq,
       };
 
     case SoccerAction.FreeKick:
@@ -367,6 +392,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         action: SoccerAction.FreeKick,
         participant,
         freeKickType: raw.dataSoccer?.FreeKickType,
+        seq: raw.seq,
       };
 
     case SoccerAction.ThrowIn:
@@ -374,16 +400,18 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         action: SoccerAction.ThrowIn,
         participant,
         throwInType: raw.dataSoccer?.ThrowInType,
+        seq: raw.seq,
       };
 
     case SoccerAction.GoalKick:
-      return { action: SoccerAction.GoalKick, participant };
+      return { action: SoccerAction.GoalKick, participant, seq: raw.seq };
 
     case SoccerAction.Var:
       return {
         action: SoccerAction.Var,
         participant,
         varType: parseVarType(raw.dataSoccer?.Type),
+        seq: raw.seq,
       };
 
     case SoccerAction.VarEnd:
@@ -391,6 +419,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         action: SoccerAction.VarEnd,
         participant,
         outcome: parseVarEndOutcome(raw.dataSoccer?.Outcome),
+        seq: raw.seq,
       };
 
     case SoccerAction.Possible: {
@@ -404,6 +433,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         possibleYellowCard: d.YellowCard,
         possibleRedCard: d.RedCard,
         possibleVar: d.VAR,
+        seq: raw.seq,
       };
     }
 
@@ -412,11 +442,11 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
       if (typeof statusId !== "number" || !isStatusId(statusId)) {
         const fromGameState = gameStateToStatusId(raw.gameState);
         if (fromGameState !== undefined) {
-          return { action: SoccerAction.Status, participant, statusId: fromGameState };
+          return { action: SoccerAction.Status, participant, statusId: fromGameState, seq: raw.seq };
         }
         throw new Error(`Invalid or missing StatusId: ${statusId}, gameState: ${raw.gameState}`);
       }
-      return { action: SoccerAction.Status, participant, statusId };
+      return { action: SoccerAction.Status, participant, statusId, seq: raw.seq };
     }
 
     case SoccerAction.ScoreAdjustment:
@@ -424,6 +454,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         action: SoccerAction.ScoreAdjustment,
         participant,
         score: (raw.scoreSoccer as unknown as Record<string, unknown>) || {},
+        seq: raw.seq,
       };
 
     case SoccerAction.AdditionalTime:
@@ -431,10 +462,11 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         action: SoccerAction.AdditionalTime,
         participant,
         minutes: raw.dataSoccer?.Minutes ?? 0,
+        seq: raw.seq,
       };
 
     case SoccerAction.Kickoff:
-      return { action: SoccerAction.Kickoff, participant };
+      return { action: SoccerAction.Kickoff, participant, seq: raw.seq };
 
     case SoccerAction.Substitution:
       return {
@@ -442,6 +474,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         participant,
         playerInId: raw.dataSoccer?.PlayerInId ?? 0,
         playerOutId: raw.dataSoccer?.PlayerOutId ?? 0,
+        seq: raw.seq,
       };
 
     case SoccerAction.Injury:
@@ -450,6 +483,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         participant,
         playerId: raw.dataSoccer?.PlayerId,
         outcome: parseInjuryOutcome(raw.dataSoccer?.Outcome),
+        seq: raw.seq,
       };
 
     case SoccerAction.Suspend:
@@ -457,6 +491,7 @@ export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
         action: SoccerAction.Suspend,
         participant,
         reliable: raw.confirmed ?? false,
+        seq: raw.seq,
       };
 
     default:
