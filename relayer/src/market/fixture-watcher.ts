@@ -3,9 +3,10 @@ import { PublicKey } from "@solana/web3.js";
 import { TxLineClient } from "../clients/txline-client";
 import { Config } from "../config";
 import {
-  FootballEvent,
-  FootballAction,
+  SoccerEvent,
+  SoccerAction,
   StatusId,
+  gameStateToStatusId,
 } from "./event-parser";
 import type { FixtureRecord, ScoresRecord } from "@swingkiddo/txodds-client/dist/types";
 
@@ -154,7 +155,9 @@ export class FixtureWatcher extends EventEmitter {
     const currentScore: ScoresRecord | null =
       scores.length > 0 ? scores[scores.length - 1] : null;
     const status = currentScore
-      ? (currentScore.gameState as StatusId)
+      ? (typeof currentScore.gameState === "string"
+        ? gameStateToStatusId(currentScore.gameState) ?? StatusId.NotStarted
+        : (currentScore.gameState as StatusId))
       : StatusId.NotStarted;
 
     const state: MatchState = {
@@ -178,22 +181,22 @@ export class FixtureWatcher extends EventEmitter {
 
   // ── Event processing ──
 
-  processEvent(event: FootballEvent, fixtureId: number): MatchState | undefined {
+  processEvent(event: SoccerEvent, fixtureId: number): MatchState | undefined {
     const state = this.matches.get(fixtureId);
     if (!state) return undefined;
 
     state.lastEventAt = Date.now();
 
     switch (event.action) {
-      case FootballAction.Status:
+      case SoccerAction.Status:
         this.handleStatusChange(event, state);
         break;
 
-      case FootballAction.Goal:
+      case SoccerAction.Goal:
         this.handleGoal(event, state);
         break;
 
-      case FootballAction.ScoreAdjustment:
+      case SoccerAction.ScoreAdjustment:
         this.handleScoreAdjustment(event, state);
         break;
     }
@@ -216,7 +219,7 @@ export class FixtureWatcher extends EventEmitter {
   // ── Internal event handlers ──
 
   private handleStatusChange(
-    event: { action: FootballAction.Status; participant?: 1 | 2; statusId: StatusId },
+    event: { action: SoccerAction.Status; participant?: 1 | 2; statusId: StatusId },
     state: MatchState,
   ): void {
     const newStatus = event.statusId;
@@ -256,7 +259,7 @@ export class FixtureWatcher extends EventEmitter {
   }
 
   private handleGoal(
-    event: { action: FootballAction.Goal; participant?: 1 | 2 },
+    event: { action: SoccerAction.Goal; participant?: 1 | 2 },
     state: MatchState,
   ): void {
     if (event.participant === 1) {
@@ -268,16 +271,14 @@ export class FixtureWatcher extends EventEmitter {
   }
 
   private handleScoreAdjustment(
-    event: { action: FootballAction.ScoreAdjustment; participant?: 1 | 2; score: Record<string, unknown> },
+    event: { action: SoccerAction.ScoreAdjustment; participant?: 1 | 2; score: Record<string, unknown> },
     state: MatchState,
   ): void {
     const score = event.score;
-    if (typeof score["Home"] === "number") {
-      state.homeScore = score["Home"];
-    }
-    if (typeof score["Away"] === "number") {
-      state.awayScore = score["Away"];
-    }
+    const p1Goals = (score as any)?.Participant1?.Total?.Goals;
+    const p2Goals = (score as any)?.Participant2?.Total?.Goals;
+    if (typeof p1Goals === "number") state.homeScore = p1Goals;
+    if (typeof p2Goals === "number") state.awayScore = p2Goals;
     this.emit("score_changed", state);
   }
 }

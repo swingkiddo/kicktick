@@ -1,8 +1,6 @@
 import { TxLineSseEvent } from "../clients/txline-client";
 
-// ── Enums ──
-
-export enum FootballAction {
+export enum SoccerAction {
   Goal = "goal",
   Corner = "corner",
   YellowCard = "yellow_card",
@@ -73,96 +71,137 @@ export enum MarketType {
   VARCheck = "VARCheck",
 }
 
-// ── Raw SSE data shape ──
+export interface SoccerScorePeriod {
+  Goals: number;
+  YellowCards: number;
+  RedCards: number;
+  Corners: number;
+}
 
-export interface RawSseData {
-  Action?: string;
+export interface SoccerTotalScore {
+  Total?: SoccerScorePeriod;
+  H1?: SoccerScorePeriod;
+  H2?: SoccerScorePeriod;
+  HT?: SoccerScorePeriod;
+  ET1?: SoccerScorePeriod;
+  ET2?: SoccerScorePeriod;
+  PE?: SoccerScorePeriod;
+  ETTotal?: SoccerScorePeriod;
+}
+
+export interface SoccerFixtureScore {
+  Participant1: SoccerTotalScore;
+  Participant2: SoccerTotalScore;
+}
+
+export interface SoccerData {
   Participant?: number;
   PlayerId?: number;
   GoalType?: string;
-  Data?: Record<string, unknown>;
-  Score?: Record<string, unknown>;
-  FollowsAction?: unknown;
+  Outcome?: string;
+  FreeKickType?: string;
+  ThrowInType?: string;
+  Type?: string;
+  StatusId?: number;
+  Minutes?: number;
   PlayerInId?: number;
   PlayerOutId?: number;
+  Goal?: boolean;
+  Corner?: boolean;
+  Penalty?: boolean;
+  RedCard?: boolean;
+  YellowCard?: boolean;
+  VAR?: boolean;
 }
 
-// ── Typed event interfaces ──
+export interface ScoresSseData {
+  fixtureId: number;
+  action: string;
+  participant?: number;
+  gameState: string;
+  id: number;
+  seq: number;
+  ts: number;
+  confirmed?: boolean;
+  clock?: { running: boolean; seconds: number };
+  dataSoccer?: SoccerData;
+  scoreSoccer?: SoccerFixtureScore;
+}
 
 export interface GoalEvent {
-  action: FootballAction.Goal;
+  action: SoccerAction.Goal;
   participant?: 1 | 2;
   goalType: GoalType;
   playerId?: number;
 }
 
 export interface CornerEvent {
-  action: FootballAction.Corner;
+  action: SoccerAction.Corner;
   participant?: 1 | 2;
 }
 
 export interface YellowCardEvent {
-  action: FootballAction.YellowCard;
+  action: SoccerAction.YellowCard;
   participant?: 1 | 2;
   playerId?: number;
 }
 
 export interface RedCardEvent {
-  action: FootballAction.RedCard;
+  action: SoccerAction.RedCard;
   participant?: 1 | 2;
   playerId?: number;
   redCardType: "StraightRed" | "SecondYellow";
 }
 
 export interface PenaltyAwardedEvent {
-  action: FootballAction.Penalty;
+  action: SoccerAction.Penalty;
   participant?: 1 | 2;
 }
 
 export interface PenaltyOutcomeEvent {
-  action: FootballAction.PenaltyOutcome;
+  action: SoccerAction.PenaltyOutcome;
   participant?: 1 | 2;
   outcome: "Scored" | "Missed" | "Retake";
   followsAction?: unknown;
 }
 
 export interface ShotEvent {
-  action: FootballAction.Shot;
+  action: SoccerAction.Shot;
   participant?: 1 | 2;
   outcome: "OnTarget" | "OffTarget" | "Woodwork" | "Blocked";
 }
 
 export interface FreeKickEvent {
-  action: FootballAction.FreeKick;
+  action: SoccerAction.FreeKick;
   participant?: 1 | 2;
   freeKickType?: string;
 }
 
 export interface ThrowInEvent {
-  action: FootballAction.ThrowIn;
+  action: SoccerAction.ThrowIn;
   participant?: 1 | 2;
   throwInType?: string;
 }
 
 export interface GoalKickEvent {
-  action: FootballAction.GoalKick;
+  action: SoccerAction.GoalKick;
   participant?: 1 | 2;
 }
 
 export interface VarCheckEvent {
-  action: FootballAction.Var;
+  action: SoccerAction.Var;
   participant?: 1 | 2;
   varType: VarType;
 }
 
 export interface VarEndEvent {
-  action: FootballAction.VarEnd;
+  action: SoccerAction.VarEnd;
   participant?: 1 | 2;
   outcome: "Stands" | "Overturned";
 }
 
 export interface PossibleEvent {
-  action: FootballAction.Possible;
+  action: SoccerAction.Possible;
   participant?: 1 | 2;
   possibleGoal?: boolean;
   possiblePenalty?: boolean;
@@ -173,51 +212,49 @@ export interface PossibleEvent {
 }
 
 export interface StatusChangeEvent {
-  action: FootballAction.Status;
+  action: SoccerAction.Status;
   participant?: 1 | 2;
   statusId: StatusId;
 }
 
 export interface ScoreAdjustmentEvent {
-  action: FootballAction.ScoreAdjustment;
+  action: SoccerAction.ScoreAdjustment;
   participant?: 1 | 2;
   score: Record<string, unknown>;
 }
 
 export interface AdditionalTimeEvent {
-  action: FootballAction.AdditionalTime;
+  action: SoccerAction.AdditionalTime;
   participant?: 1 | 2;
   minutes: number;
 }
 
 export interface KickoffEvent {
-  action: FootballAction.Kickoff;
+  action: SoccerAction.Kickoff;
   participant?: 1 | 2;
 }
 
 export interface SubstitutionEvent {
-  action: FootballAction.Substitution;
+  action: SoccerAction.Substitution;
   participant?: 1 | 2;
   playerInId: number;
   playerOutId: number;
 }
 
 export interface InjuryEvent {
-  action: FootballAction.Injury;
+  action: SoccerAction.Injury;
   participant?: 1 | 2;
   playerId?: number;
   outcome?: "OnPitch" | "OffPitch" | "NotReturning";
 }
 
 export interface SuspendEvent {
-  action: FootballAction.Suspend;
+  action: SoccerAction.Suspend;
   participant?: 1 | 2;
   reliable: boolean;
 }
 
-// ── Union type ──
-
-export type FootballEvent =
+export type SoccerEvent =
   | GoalEvent
   | CornerEvent
   | YellowCardEvent
@@ -239,189 +276,194 @@ export type FootballEvent =
   | InjuryEvent
   | SuspendEvent;
 
-// ── Type guard ──
-
 export function isStatusId(value: number): value is StatusId {
   return Number.isInteger(value) && value >= 1 && value <= 16;
 }
 
-// ── Parser ──
+const GAME_STATE_MAP: Record<string, StatusId> = {
+  "NS": StatusId.NotStarted,
+  "H1": StatusId.FirstHalf,
+  "HT": StatusId.HalfTime,
+  "H2": StatusId.SecondHalf,
+  "F":  StatusId.FullTime,
+  "WET": StatusId.WaitingExtraTime,
+  "ET1": StatusId.ExtraTimeFirstHalf,
+  "HTET": StatusId.ExtraTimeHalfTime,
+  "ET2": StatusId.ExtraTimeSecondHalf,
+  "FET": StatusId.FinishedAfterExtraTime,
+  "WPE": StatusId.WaitingPenaltyShootout,
+  "PE": StatusId.PenaltyShootout,
+  "FPE": StatusId.FinishedAfterPenaltyShootout,
+  "I":  StatusId.Interrupted,
+  "A":  StatusId.Abandoned,
+  "C":  StatusId.Cancelled,
+};
 
-export function parseFootballEvent(event: TxLineSseEvent): FootballEvent {
-  let raw: RawSseData;
+export function gameStateToStatusId(gameState: string): StatusId | undefined {
+  return GAME_STATE_MAP[gameState];
+}
+
+export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
+  let raw: ScoresSseData;
   try {
     raw = JSON.parse(event.data);
   } catch {
     throw new Error(`Invalid JSON in SSE data: ${event.data}`);
   }
 
-  const action = raw.Action;
-  const participant = parseParticipant(raw.Participant);
+  const action = raw.action;
+  const participant = parseParticipant(raw.participant ?? raw.dataSoccer?.Participant);
 
   if (!action) {
-    throw new Error("Missing Action field in SSE data");
+    throw new Error("Missing action field in SSE data");
   }
 
   switch (action) {
-    case FootballAction.Goal:
+    case SoccerAction.Goal:
       return {
-        action: FootballAction.Goal,
+        action: SoccerAction.Goal,
         participant,
-        goalType: parseGoalType(raw.GoalType),
-        playerId: raw.PlayerId,
+        goalType: parseGoalType(raw.dataSoccer?.GoalType),
+        playerId: raw.dataSoccer?.PlayerId,
       };
 
-    case FootballAction.Corner:
+    case SoccerAction.Corner:
       return {
-        action: FootballAction.Corner,
-        participant,
-      };
-
-    case FootballAction.YellowCard:
-      return {
-        action: FootballAction.YellowCard,
-        participant,
-        playerId: raw.PlayerId,
-      };
-
-    case FootballAction.RedCard:
-      return {
-        action: FootballAction.RedCard,
-        participant,
-        playerId: raw.PlayerId,
-        redCardType: parseRedCardType(raw.Data?.Type),
-      };
-
-    case FootballAction.Penalty:
-      return {
-        action: FootballAction.Penalty,
+        action: SoccerAction.Corner,
         participant,
       };
 
-    case FootballAction.PenaltyOutcome:
+    case SoccerAction.YellowCard:
+      return { action: SoccerAction.YellowCard, participant, playerId: raw.dataSoccer?.PlayerId };
+
+    case SoccerAction.RedCard:
       return {
-        action: FootballAction.PenaltyOutcome,
+        action: SoccerAction.RedCard,
         participant,
-        outcome: parsePenaltyOutcome(raw.Data?.Outcome),
-        followsAction: raw.FollowsAction,
+        playerId: raw.dataSoccer?.PlayerId,
+        redCardType: parseRedCardType(raw.dataSoccer?.Type),
       };
 
-    case FootballAction.Shot:
+    case SoccerAction.Penalty:
+      return { action: SoccerAction.Penalty, participant };
+
+    case SoccerAction.PenaltyOutcome:
       return {
-        action: FootballAction.Shot,
+        action: SoccerAction.PenaltyOutcome,
         participant,
-        outcome: parseShotOutcome(raw.Data?.Outcome),
+        outcome: parsePenaltyOutcome(raw.dataSoccer?.Outcome),
+        followsAction: undefined,
       };
 
-    case FootballAction.FreeKick:
+    case SoccerAction.Shot:
       return {
-        action: FootballAction.FreeKick,
+        action: SoccerAction.Shot,
         participant,
-        freeKickType: extractOptionalString(raw.Data?.FreeKickType),
+        outcome: parseShotOutcome(raw.dataSoccer?.Outcome),
       };
 
-    case FootballAction.ThrowIn:
+    case SoccerAction.FreeKick:
       return {
-        action: FootballAction.ThrowIn,
+        action: SoccerAction.FreeKick,
         participant,
-        throwInType: extractOptionalString(raw.Data?.ThrowInType),
+        freeKickType: raw.dataSoccer?.FreeKickType,
       };
 
-    case FootballAction.GoalKick:
+    case SoccerAction.ThrowIn:
       return {
-        action: FootballAction.GoalKick,
+        action: SoccerAction.ThrowIn,
         participant,
+        throwInType: raw.dataSoccer?.ThrowInType,
       };
 
-    case FootballAction.Var:
+    case SoccerAction.GoalKick:
+      return { action: SoccerAction.GoalKick, participant };
+
+    case SoccerAction.Var:
       return {
-        action: FootballAction.Var,
+        action: SoccerAction.Var,
         participant,
-        varType: parseVarType(raw.Data?.Type),
+        varType: parseVarType(raw.dataSoccer?.Type),
       };
 
-    case FootballAction.VarEnd:
+    case SoccerAction.VarEnd:
       return {
-        action: FootballAction.VarEnd,
+        action: SoccerAction.VarEnd,
         participant,
-        outcome: parseVarEndOutcome(raw.Data?.Outcome),
+        outcome: parseVarEndOutcome(raw.dataSoccer?.Outcome),
       };
 
-    case FootballAction.Possible: {
-      const d = raw.Data || {};
+    case SoccerAction.Possible: {
+      const d = raw.dataSoccer || {};
       return {
-        action: FootballAction.Possible,
+        action: SoccerAction.Possible,
         participant,
-        possibleGoal: extractOptionalBool(d.Goal),
-        possiblePenalty: extractOptionalBool(d.Penalty),
-        possibleCorner: extractOptionalBool(d.Corner),
-        possibleYellowCard: extractOptionalBool(d.YellowCard),
-        possibleRedCard: extractOptionalBool(d.RedCard),
-        possibleVar: extractOptionalBool(d.VAR),
+        possibleGoal: d.Goal,
+        possiblePenalty: d.Penalty,
+        possibleCorner: d.Corner,
+        possibleYellowCard: d.YellowCard,
+        possibleRedCard: d.RedCard,
+        possibleVar: d.VAR,
       };
     }
 
-    case FootballAction.Status: {
-      const statusId = raw.Data?.StatusId;
+    case SoccerAction.Status: {
+      const statusId = raw.dataSoccer?.StatusId;
       if (typeof statusId !== "number" || !isStatusId(statusId)) {
-        throw new Error(`Invalid or missing StatusId: ${statusId}`);
+        const fromGameState = gameStateToStatusId(raw.gameState);
+        if (fromGameState !== undefined) {
+          return { action: SoccerAction.Status, participant, statusId: fromGameState };
+        }
+        throw new Error(`Invalid or missing StatusId: ${statusId}, gameState: ${raw.gameState}`);
       }
-      return {
-        action: FootballAction.Status,
-        participant,
-        statusId,
-      };
+      return { action: SoccerAction.Status, participant, statusId };
     }
 
-    case FootballAction.ScoreAdjustment:
+    case SoccerAction.ScoreAdjustment:
       return {
-        action: FootballAction.ScoreAdjustment,
+        action: SoccerAction.ScoreAdjustment,
         participant,
-        score: (raw.Score as Record<string, unknown>) || {},
+        score: (raw.scoreSoccer as unknown as Record<string, unknown>) || {},
       };
 
-    case FootballAction.AdditionalTime:
+    case SoccerAction.AdditionalTime:
       return {
-        action: FootballAction.AdditionalTime,
+        action: SoccerAction.AdditionalTime,
         participant,
-        minutes: extractNumber(raw.Data?.Minutes, 0),
+        minutes: raw.dataSoccer?.Minutes ?? 0,
       };
 
-    case FootballAction.Kickoff:
+    case SoccerAction.Kickoff:
+      return { action: SoccerAction.Kickoff, participant };
+
+    case SoccerAction.Substitution:
       return {
-        action: FootballAction.Kickoff,
+        action: SoccerAction.Substitution,
         participant,
+        playerInId: raw.dataSoccer?.PlayerInId ?? 0,
+        playerOutId: raw.dataSoccer?.PlayerOutId ?? 0,
       };
 
-    case FootballAction.Substitution:
+    case SoccerAction.Injury:
       return {
-        action: FootballAction.Substitution,
+        action: SoccerAction.Injury,
         participant,
-        playerInId: extractNumber(raw.PlayerInId, 0),
-        playerOutId: extractNumber(raw.PlayerOutId, 0),
+        playerId: raw.dataSoccer?.PlayerId,
+        outcome: parseInjuryOutcome(raw.dataSoccer?.Outcome),
       };
 
-    case FootballAction.Injury:
+    case SoccerAction.Suspend:
       return {
-        action: FootballAction.Injury,
+        action: SoccerAction.Suspend,
         participant,
-        playerId: raw.PlayerId,
-        outcome: parseInjuryOutcome(raw.Data?.Outcome),
-      };
-
-    case FootballAction.Suspend:
-      return {
-        action: FootballAction.Suspend,
-        participant,
-        reliable: extractBool(raw.Data?.Reliable, false),
+        reliable: raw.confirmed ?? false,
       };
 
     default:
-      throw new Error(`Unknown football action: ${action}`);
+      console.warn(`Unknown soccer action: ${action}`);
+      return null;
   }
 }
-
-// ── Extraction helpers ──
 
 function extractString(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.length > 0) return value;
@@ -447,8 +489,6 @@ function extractOptionalBool(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
   return undefined;
 }
-
-// ── Safer typed-value helpers ──
 
 function parseParticipant(val: unknown): 1 | 2 | undefined {
   if (val === 1) return 1;
@@ -504,35 +544,33 @@ function parseInjuryOutcome(val: unknown): "OnPitch" | "OffPitch" | "NotReturnin
   return undefined;
 }
 
-// ── Market type mapping ──
-
-export function getTriggeredMarketTypes(event: FootballEvent): MarketType[] {
+export function getTriggeredMarketTypes(event: SoccerEvent): MarketType[] {
   switch (event.action) {
-    case FootballAction.Goal:
+    case SoccerAction.Goal:
       return [MarketType.NextGoalSide];
 
-    case FootballAction.Corner:
+    case SoccerAction.Corner:
       return [MarketType.NextCorner];
 
-    case FootballAction.YellowCard:
+    case SoccerAction.YellowCard:
       return [MarketType.NextYellowCard];
 
-    case FootballAction.RedCard:
+    case SoccerAction.RedCard:
       return [MarketType.RedCardInMatch];
 
-    case FootballAction.Penalty:
+    case SoccerAction.Penalty:
       return [MarketType.PenaltyShot];
 
-    case FootballAction.PenaltyOutcome:
+    case SoccerAction.PenaltyOutcome:
       return [MarketType.PenaltyShot, MarketType.PenaltyShootoutShot];
 
-    case FootballAction.Var:
+    case SoccerAction.Var:
       return [MarketType.VARCheck];
 
-    case FootballAction.VarEnd:
+    case SoccerAction.VarEnd:
       return [MarketType.VARCheck];
 
-    case FootballAction.Status: {
+    case SoccerAction.Status: {
       const { statusId } = event;
       if (
         statusId === StatusId.FullTime ||

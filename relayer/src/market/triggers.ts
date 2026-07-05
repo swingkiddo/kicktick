@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 import {
-  FootballEvent,
-  FootballAction,
+  SoccerEvent,
+  SoccerAction,
   MarketType,
   StatusId,
   GoalEvent,
@@ -36,7 +36,7 @@ export interface RoundTracker {
   openedAt: number;
   expiresAt: number;
   settledAt?: number;
-  triggerEvent?: FootballEvent;
+  triggerEvent?: SoccerEvent;
 }
 
 export const MIN_MARKET_DURATION = 15;
@@ -97,38 +97,38 @@ export class MarketTrigger extends EventEmitter {
     );
   }
 
-  processEvent(event: FootballEvent, fixtureId: number, currentMatchState: MatchState): void {
+  processEvent(event: SoccerEvent, fixtureId: number, currentMatchState: MatchState): void {
     const f = this.getOrCreateFixture(fixtureId);
     f.matchPda = currentMatchState.matchPda.toBase58();
 
     const actions: TriggerAction[] = [];
 
     switch (event.action) {
-      case FootballAction.Goal:
+      case SoccerAction.Goal:
         this.handleGoal(event as GoalEvent, fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.Corner:
+      case SoccerAction.Corner:
         this.handleCorner(event as CornerEvent, fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.YellowCard:
+      case SoccerAction.YellowCard:
         this.handleYellowCard(event as YellowCardEvent, fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.RedCard:
+      case SoccerAction.RedCard:
         this.handleRedCard(event as RedCardEvent, fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.Penalty:
+      case SoccerAction.Penalty:
         this.handlePenalty(fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.PenaltyOutcome:
+      case SoccerAction.PenaltyOutcome:
         this.handlePenaltyOutcome(event as PenaltyOutcomeEvent, fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.Var:
+      case SoccerAction.Var:
         this.handleVar(event as VarCheckEvent, fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.VarEnd:
+      case SoccerAction.VarEnd:
         this.handleVarEnd(event as VarEndEvent, fixtureId, currentMatchState, actions);
         break;
-      case FootballAction.Status:
+      case SoccerAction.Status:
         this.handleStatus(event as StatusChangeEvent, fixtureId, currentMatchState, actions);
         break;
     }
@@ -250,7 +250,7 @@ export class MarketTrigger extends EventEmitter {
     marketType: MarketType,
     state: MatchState,
     actions: TriggerAction[],
-    triggerEvent?: FootballEvent,
+    triggerEvent?: SoccerEvent,
   ): void {
     const f = this.getOrCreateFixture(fixtureId);
     const roundId = this.getNextRoundId(fixtureId);

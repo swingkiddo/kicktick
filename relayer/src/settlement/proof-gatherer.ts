@@ -1,5 +1,5 @@
 import { TxLineClient } from "../clients/txline-client";
-import { FootballEvent, MarketType } from "../market/event-parser";
+import { SoccerEvent, MarketType } from "../market/event-parser";
 
 // ── Constants (mirrors kicktick/programs/kicktick/src/constants.rs) ──
 
@@ -143,12 +143,12 @@ export class ProofGatherer {
   /**
    * Get the trigger SSE sequence for a given football event.
    *
-   * NOTE: FootballEvent does not currently carry the SSE sequence number.
+   * NOTE: SoccerEvent does not currently carry the SSE sequence number.
    * The caller must provide the seq from the scores SSE event id or the
    * ScoresRecord that triggered this event. This method returns 0 as a
    * placeholder until the event type is extended.
    */
-  getTriggerSeq(_event: FootballEvent): number {
+  getTriggerSeq(_event: SoccerEvent): number {
     return 0;
   }
 
