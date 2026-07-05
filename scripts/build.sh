@@ -33,6 +33,15 @@ build_frontend() {
 
 build_relayer() {
   echo "→ Building kicktick-relayer:${STAGE}"
+  local idl_src="$PROJECT_DIR/kicktick/target/idl/kicktick.json"
+  local idl_dst="$PROJECT_DIR/relayer/src/idl/kicktick.json"
+  if [ -f "$idl_src" ]; then
+    mkdir -p "$(dirname "$idl_dst")"
+    cp "$idl_src" "$idl_dst"
+    echo "  IDL copied from contracts build"
+  else
+    echo "  ⚠ IDL not found at kicktick/target/idl/kicktick.json — run './scripts/build.sh contracts' first"
+  fi
   docker build \
     --target "$STAGE" \
     -t "kicktick-relayer:${STAGE}" \

@@ -12,7 +12,7 @@ ARG USER_NAME=pdpvs
 ENV DEBIAN_FRONTEND=noninteractive
 ENV RUST_VERSION=1.96.0
 ENV SOLANA_VERSION=3.1.10
-ENV ANCHOR_VERSION=1.0.2
+ENV ANCHOR_VERSION=1.0.0
 ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV AVM_HOME=/usr/local/anchor
@@ -48,10 +48,30 @@ RUN avm install ${ANCHOR_VERSION} && avm use ${ANCHOR_VERSION}
 # Verify installations
 RUN rustc --version && solana --version && anchor --version
 
-RUN groupadd -g ${GROUP_ID} ${USER_NAME} \
-    && useradd -m -u ${USER_ID} -g ${USER_NAME} -s /bin/bash ${USER_NAME} \
+# Pre-download SBF platform-tools (LLVM + rustc) into SDK
+# install.sh creates ~/.cache/solana/<ver>/platform-tools/ + symlinks in dependencies/
+# Keep symlinks — cargo-build-sbf expects them and updates them on first build
+RUN cd /usr/local/solana/active_release/bin/platform-tools-sdk/sbf && \
+    bash scripts/install.sh
+
+RUN if getent passwd ${USER_ID} > /dev/null; then \
+      EXISTING_USER=$(getent passwd ${USER_ID} | cut -d: -f1); \
+      usermod -l ${USER_NAME} -d /home/${USER_NAME} -m $EXISTING_USER; \
+    else \
+      groupadd -g ${GROUP_ID} ${USER_NAME} 2>/dev/null || true; \
+      useradd -m -u ${USER_ID} -g ${GROUP_ID} -s /bin/bash ${USER_NAME}; \
+    fi \
+    && if [ -d /root/.cache/solana ]; then \
+      mkdir -p /home/${USER_NAME}/.cache/solana && \
+      cp -r /root/.cache/solana/* /home/${USER_NAME}/.cache/solana/ && \
+      chown -R ${USER_NAME}:${GROUP_ID} /home/${USER_NAME}/.cache; \
+    fi \
     && mkdir -p /workspace \
-    && chown -R ${USER_NAME}:${USER_NAME} /workspace
+    && chown -R ${USER_NAME}:${GROUP_ID} /workspace \
+    && chown -R ${USER_NAME}:${GROUP_ID} ${CARGO_HOME} \
+    && chown -R ${USER_NAME}:${GROUP_ID} ${RUSTUP_HOME} \
+    && chown -R ${USER_NAME}:${GROUP_ID} ${AVM_HOME} \
+    && chown -R ${USER_NAME}:${GROUP_ID} /usr/local/solana
 
 USER ${USER_NAME}
 

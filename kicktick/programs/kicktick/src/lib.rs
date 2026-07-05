@@ -14,7 +14,7 @@ pub mod instructions;
 use state::*;
 use instructions::*;
 
-declare_id!("CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc");
+declare_id!("a9G9tTEmeALLBi2zf7zR4adbpR4U1N3r6cgRtZUV3o2");
 
 #[program]
 pub mod kicktick {

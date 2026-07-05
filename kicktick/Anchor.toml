@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-kicktick = "CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc"
+kicktick = "a9G9tTEmeALLBi2zf7zR4adbpR4U1N3r6cgRtZUV3o2"
 
 [programs.localnet]
 kicktick = "CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc"

@@ -36,14 +36,15 @@ echo "Checking program status on $NETWORK..."
 if docker run --rm \
   -v "$PROJECT_DIR/kicktick:/workspace" \
   "$IMAGE" \
-  solana program show "$PROGRAM_ID" --url "$NETWORK" > /dev/null 2>&1; then
+  solana program show "$PROGRAM_ID" --url "$NETWORK" \
+    --keypair target/deploy/kicktick-keypair.json > /dev/null 2>&1; then
   echo "Program exists. Updating..."
 else
   echo "Program not found. Deploying..."
 fi
 
 # Deploy via Docker
-docker run --rm \
+docker run --rm -t \
   -v "$PROJECT_DIR/kicktick:/workspace" \
   -v "$PROJECT_DIR/kicktick/kicktick-deployer.json:/home/pdpvs/.config/solana/id.json:ro" \
   "$IMAGE" \
