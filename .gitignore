@@ -41,3 +41,5 @@ docs/superpowers
 .agents
 kicktick/test-ledger
 test_scripts
+keypair.json
+test-ledger/
