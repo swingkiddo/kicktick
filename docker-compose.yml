@@ -40,7 +40,6 @@ services:
     volumes:
       - ./relayer:/app
       - /app/node_modules
-      - ./.env:/app/.env:ro
     env_file:
       - .env
     environment:
@@ -62,7 +61,6 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-      - ./.env:/app/.env:ro
     env_file:
       - .env
     environment:
