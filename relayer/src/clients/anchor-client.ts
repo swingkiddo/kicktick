@@ -10,11 +10,10 @@ import {
 import { AnchorProvider, Program, Wallet, BN } from "@anchor-lang/core";
 import type { Idl } from "@anchor-lang/core/dist/cjs/idl";
 import { Config } from "../config";
-import { FixtureWatcher } from "../market/fixture-watcher";
 
 // ── IDL ──
 
-const kicktickIdl: Idl = require("../../../kicktick/target/idl/kicktick.json");
+const kicktickIdl: Idl = require("../idl/kicktick.json");
 
 // ── Type definitions (mirroring Anchor program types for type-safety) ──
 
@@ -138,7 +137,17 @@ function expandHome(filePath: string): string {
 }
 
 function camelCase(s: string): string {
+  const match = s.match(/^([A-Z]+)([A-Z][a-z])/);
+  if (match) {
+    return match[1].toLowerCase() + match[2] + s.slice(match[0].length);
+  }
   return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+function toLeBytes64(n: number): Buffer {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(n), 0);
+  return buf;
 }
 
 // ── AnchorClient ──
@@ -182,7 +191,7 @@ export class AnchorClient {
   // ── PDA derivation helpers ──
 
   static deriveMatchPda(fixtureId: number, programId: PublicKey): [PublicKey, number] {
-    return FixtureWatcher.deriveMatchPda(fixtureId, programId);
+    return PublicKey.findProgramAddressSync([Buffer.from("match"), toLeBytes64(fixtureId)], programId);
   }
 
   static deriveRoundPda(
@@ -190,11 +199,11 @@ export class AnchorClient {
     roundId: number,
     programId: PublicKey,
   ): [PublicKey, number] {
-    return FixtureWatcher.deriveRoundPda(matchPda, roundId, programId);
+    return PublicKey.findProgramAddressSync([Buffer.from("round"), matchPda.toBuffer(), toLeBytes64(roundId)], programId);
   }
 
   static deriveConfigPda(programId: PublicKey): [PublicKey, number] {
-    return FixtureWatcher.deriveConfigPda(programId);
+    return PublicKey.findProgramAddressSync([Buffer.from("config")], programId);
   }
 
   static deriveDailyScoresRootsPda(txoracleProgramId: PublicKey): [PublicKey, number] {
@@ -208,7 +217,8 @@ export class AnchorClient {
 
   private async buildAndSend(ix: Promise<Transaction>): Promise<string>;
   private async buildAndSend(ix: Promise<Transaction>, cuLimit: number): Promise<string>;
-  private async buildAndSend(ix: Promise<Transaction>, cuLimit?: number): Promise<string> {
+  private async buildAndSend(ix: Promise<Transaction>, cuLimit: number, signers: Keypair[]): Promise<string>;
+  private async buildAndSend(ix: Promise<Transaction>, cuLimit?: number, signers?: Keypair[]): Promise<string> {
     let tx: Transaction;
     try {
       tx = await ix;
@@ -224,7 +234,7 @@ export class AnchorClient {
     }
 
     try {
-      const sig = await this.provider.sendAndConfirm(tx);
+      const sig = await this.provider.sendAndConfirm(tx, signers);
       return sig;
     } catch (err: any) {
       const logs = err?.logs as string[] | undefined;
@@ -258,11 +268,11 @@ export class AnchorClient {
       this.program.methods
         .openRound(
           new BN(roundId),
-          { [marketType]: {} },
+          { [camelCase(marketType)]: {} },
           new BN(lockSeconds),
           new BN(deadlineSeconds),
         )
-        .accounts({
+        .accountsStrict({
           authority: this.walletPublicKey,
           matchPda,
           round: roundPda,
@@ -342,7 +352,7 @@ export class AnchorClient {
     return this.buildAndSend(
       this.program.methods
         .settleRound(args)
-        .accounts({
+        .accountsStrict({
           caller: this.walletPublicKey,
           matchPda,
           round: roundPda,
@@ -368,8 +378,8 @@ export class AnchorClient {
 
     return this.buildAndSend(
       this.program.methods
-        .settleOffchainRound({ [outcome]: {} }, new BN(winner))
-        .accounts({
+        .settleOffchainRound({ [camelCase(outcome)]: {} }, new BN(winner))
+        .accountsStrict({
           caller: this.walletPublicKey,
           matchPda,
           round: roundPda,
@@ -391,7 +401,7 @@ export class AnchorClient {
     return this.buildAndSend(
       this.program.methods
         .confirmRound()
-        .accounts({
+        .accountsStrict({
           caller: this.walletPublicKey,
           matchPda,
           round: roundPda,
@@ -414,7 +424,7 @@ export class AnchorClient {
     return this.buildAndSend(
       this.program.methods
         .cancelRound()
-        .accounts({
+        .accountsStrict({
           caller: this.walletPublicKey,
           config: configPda,
           matchPda,
@@ -422,5 +432,152 @@ export class AnchorClient {
         })
         .transaction(),
     );
+  }
+
+  async initConfig(): Promise<string> {
+    const [configPda] = AnchorClient.deriveConfigPda(this.programId);
+
+    return this.buildAndSend(
+      this.program.methods
+        .initConfig()
+        .accountsStrict({
+          admin: this.walletPublicKey,
+          config: configPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction(),
+    );
+  }
+
+  async initMatch(
+    fixtureId: number,
+    homeTeam: string,
+    awayTeam: string,
+  ): Promise<{ sig: string; matchPda: PublicKey; vaultPda: PublicKey }> {
+    const [matchPda] = AnchorClient.deriveMatchPda(fixtureId, this.programId);
+    const [vaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("match_vault"), matchPda.toBuffer()],
+      this.programId,
+    );
+
+    const sig = await this.buildAndSend(
+      this.program.methods
+        .initMatch(new BN(fixtureId), homeTeam, awayTeam)
+        .accountsStrict({
+          creator: this.walletPublicKey,
+          config: AnchorClient.deriveConfigPda(this.programId)[0],
+          matchPda,
+          matchVault: vaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction(),
+    );
+
+    return { sig, matchPda, vaultPda };
+  }
+
+  async placeBet(
+    fixtureId: number,
+    roundId: number,
+    side: number,
+    amount: number,
+    matchPda: PublicKey,
+    bettor?: Keypair,
+  ): Promise<string> {
+    const [roundPda] = AnchorClient.deriveRoundPda(
+      matchPda,
+      roundId,
+      this.programId,
+    );
+    const [vaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("match_vault"), matchPda.toBuffer()],
+      this.programId,
+    );
+    const bettorPub = bettor ? bettor.publicKey : this.walletPublicKey;
+    const [positionPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("position"),
+        new BN(fixtureId).toArrayLike(Buffer, "le", 8),
+        new BN(roundId).toArrayLike(Buffer, "le", 8),
+        bettorPub.toBuffer(),
+      ],
+      this.programId,
+    );
+
+    const signers = bettor ? [bettor] : [];
+    return this.buildAndSend(
+      this.program.methods
+        .placeBet(new BN(fixtureId), new BN(roundId), side, new BN(amount))
+        .accountsStrict({
+          bettor: bettorPub,
+          matchPda,
+          matchVault: vaultPda,
+          round: roundPda,
+          position: positionPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction(),
+      0,
+      signers,
+    );
+  }
+
+  async claimWinnings(
+    fixtureId: number,
+    roundId: number,
+    matchPda: PublicKey,
+    winnerKeypair?: Keypair,
+  ): Promise<string> {
+    const [roundPda] = AnchorClient.deriveRoundPda(
+      matchPda,
+      roundId,
+      this.programId,
+    );
+    const winnerPub = winnerKeypair
+      ? winnerKeypair.publicKey
+      : this.walletPublicKey;
+    const [positionPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("position"),
+        new BN(fixtureId).toArrayLike(Buffer, "le", 8),
+        new BN(roundId).toArrayLike(Buffer, "le", 8),
+        winnerPub.toBuffer(),
+      ],
+      this.programId,
+    );
+    const [vaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("match_vault"), matchPda.toBuffer()],
+      this.programId,
+    );
+
+    const signers = winnerKeypair ? [winnerKeypair] : [];
+    return this.buildAndSend(
+      this.program.methods
+        .claimWinnings(new BN(fixtureId), new BN(roundId))
+        .accountsStrict({
+          winner: winnerPub,
+          matchPda,
+          round: roundPda,
+          position: positionPda,
+          matchVault: vaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction(),
+      0,
+      signers,
+    );
+  }
+
+  async fetchRound(roundPda: PublicKey): Promise<any> {
+    return this.program.account.round.fetch(roundPda);
+  }
+
+  async fetchMatch(matchPda: PublicKey): Promise<any> {
+    return (this.program.account as any).match_.fetch(matchPda);
+  }
+
+  async fetchConfig(): Promise<any> {
+    const [configPda] = AnchorClient.deriveConfigPda(this.programId);
+    return this.program.account.config.fetch(configPda);
   }
 }
