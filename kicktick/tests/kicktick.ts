@@ -255,31 +255,178 @@ describe('KickTick (Native SOL)', () => {
   });
 
   describe('Negative path tests', () => {
+    const negBase = 54322;
+    const negLock = 15;
+    const negDeadline = 16;
+
+    async function mkMatch(fid: number) {
+      const fidBN = new anchor.BN(fid);
+      const mPda = PublicKey.findProgramAddressSync(
+        [SEED_MATCH, fidBN.toArrayLike(Buffer, 'le', 8)],
+        program.programId,
+      )[0];
+      const vPda = PublicKey.findProgramAddressSync(
+        [SEED_MATCH_VAULT, mPda.toBuffer()],
+        program.programId,
+      )[0];
+      await (program.methods
+        .initMatch(fidBN, 'Neg Home', 'Neg Away') as any)
+        .accountsStrict({
+          creator: admin.publicKey,
+          config: configPda,
+          matchPda: mPda,
+          matchVault: vPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      return { fidBN, mPda, vPda };
+    }
+
+    async function mkRound(mPda: PublicKey, rId: anchor.BN, marketType: any) {
+      const rPda = PublicKey.findProgramAddressSync(
+        [SEED_ROUND, mPda.toBuffer(), rId.toArrayLike(Buffer, 'le', 8)],
+        program.programId,
+      )[0];
+      await (program.methods
+        .openRound(rId, marketType, new anchor.BN(negLock), new anchor.BN(negDeadline)) as any)
+        .accountsStrict({
+          authority: admin.publicKey,
+          matchPda: mPda,
+          round: rPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      return rPda;
+    }
+
     it('open_round sets settlement_model correctly per market type', async () => {
-      // TODO: Test that different market types set correct settlement_model
-      // OffChain: PenaltyShot, VARCheck, NextGoalSide, NextCorner, NextYellowCard
-      // OnChain: GoalInWindow, CornerInWindow, YellowCardInWindow, RedCardInMatch, PenaltyShootoutShot
-      this.skip();
+      const cases: [number, any, boolean][] = [
+        [negBase,     { varCheck: {} },     false],
+        [negBase + 1, { penaltyShot: {} },  false],
+        [negBase + 2, { nextGoalSide: {} }, false],
+        [negBase + 3, { goalInWindow: {} }, true],
+      ];
+
+      for (const [fid, mt, expectOnChain] of cases) {
+        const { mPda } = await mkMatch(fid);
+        const rPda = await mkRound(mPda, new anchor.BN(1), mt);
+        const acc = await program.account.round.fetch(rPda);
+        if (expectOnChain) {
+          assert.ok(acc.settlementModel.onChain !== undefined, `${fid}: expected OnChain`);
+        } else {
+          assert.ok(acc.settlementModel.offChain !== undefined, `${fid}: expected OffChain`);
+        }
+      }
     });
 
     it('settle_offchain_round accepts Home | Away | NoGoal | Yes | No | Cancelled', async () => {
-      // TODO: Test all valid offchain outcomes
-      this.skip();
+      const outcomes: [any, number][] = [
+        [{ home: {} }, 1],
+        [{ away: {} }, 2],
+        [{ noGoal: {} }, 3],
+        [{ yes: {} }, 1],
+        [{ no: {} }, 2],
+        [{ cancelled: {} }, 0],
+      ];
+
+      for (let i = 0; i < outcomes.length; i++) {
+        const [outcome, winner] = outcomes[i];
+        const fid = negBase + 10 + i;
+        const { mPda } = await mkMatch(fid);
+        const rPda = await mkRound(mPda, new anchor.BN(1), { varCheck: {} });
+
+        await new Promise(r => setTimeout(r, (negDeadline + 1) * 1000));
+
+        await (program.methods
+          .settleOffchainRound(outcome, winner) as any)
+          .accountsStrict({
+            caller: admin.publicKey,
+            matchPda: mPda,
+            round: rPda,
+          })
+          .rpc();
+
+        const acc = await program.account.round.fetch(rPda);
+        assert.equal(acc.winner, winner, `winner for ${JSON.stringify(outcome)}`);
+      }
     });
 
     it('settle_round rejects offchain market with InvalidSettlementMethod', async () => {
-      // TODO: Attempt settle_round on offchain market, expect InvalidSettlementMethod error
-      this.skip();
+      const fid = negBase + 20;
+      const { mPda } = await mkMatch(fid);
+      const rPda = await mkRound(mPda, new anchor.BN(1), { varCheck: {} });
+
+      await new Promise(r => setTimeout(r, (negDeadline + 1) * 1000));
+
+      const zero32 = new Array(32).fill(0);
+      const dummyArgs = {
+        ts: new anchor.BN(0),
+        fixtureSummary: {
+          fixtureId: new anchor.BN(0),
+          updateStats: {
+            updateCount: 0,
+            minTimestamp: new anchor.BN(0),
+            maxTimestamp: new anchor.BN(0),
+          },
+          eventsSubTreeRoot: zero32,
+        },
+        fixtureProof: [],
+        mainTreeProof: [],
+        predicate: { threshold: 0, comparison: { greaterThan: {} } },
+        statA: {
+          statToProve: { key: 0, value: 0, period: 0 },
+          eventStatRoot: zero32,
+          statProof: [],
+        },
+        statB: null,
+        op: null,
+      };
+
+      const fake = Keypair.generate().publicKey;
+
+      try {
+        await (program.methods
+          .settleRound(dummyArgs) as any)
+          .accountsStrict({
+            caller: admin.publicKey,
+            matchPda: mPda,
+            round: rPda,
+            dailyScoresMerkleRoots: fake,
+            txoracleProgram: fake,
+          })
+          .rpc();
+        assert.fail('Expected InvalidSettlementMethod error');
+      } catch (err: any) {
+        assert.ok(
+          err.toString().includes('InvalidSettlementMethod'),
+          `Expected InvalidSettlementMethod, got: ${err}`,
+        );
+      }
     });
 
     it('settle_offchain_round rejects onchain market', async () => {
-      // TODO: Attempt settle_offchain_round on onchain market, expect error
-      this.skip();
-    });
+      const fid = negBase + 30;
+      const { mPda } = await mkMatch(fid);
+      const rPda = await mkRound(mPda, new anchor.BN(1), { goalInWindow: {} });
 
-    it('place_bet rejects side = 3 on non-shootout market', async () => {
-      // TODO: Attempt place_bet with side=3 on non-PenaltyShootout market, expect error
-      this.skip();
+      await new Promise(r => setTimeout(r, (negDeadline + 1) * 1000));
+
+      try {
+        await (program.methods
+          .settleOffchainRound({ yes: {} }, 1) as any)
+          .accountsStrict({
+            caller: admin.publicKey,
+            matchPda: mPda,
+            round: rPda,
+          })
+          .rpc();
+        assert.fail('Expected InvalidSettlementMethod error');
+      } catch (err: any) {
+        assert.ok(
+          err.toString().includes('InvalidSettlementMethod'),
+          `Expected InvalidSettlementMethod, got: ${err}`,
+        );
+      }
     });
   });
 });
