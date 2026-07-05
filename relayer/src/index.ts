@@ -1,4 +1,3 @@
-import fs from "fs";
 import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import {
   getOrCreateAssociatedTokenAccount,
@@ -43,7 +42,7 @@ async function main(): Promise<void> {
   console.log("║       KickTick Relayer v0.1.0            ║");
   console.log("╚══════════════════════════════════════════╝");
   console.log(`  Solana RPC:      ${config.solanaRpcUrl}`);
-  console.log(`  Keypair:         ${config.solanaKeypairPath}`);
+  console.log(`  Keypair:         ${config.solanaPrivateKey ? "loaded from env" : "missing — check SOLANA_PRIVATE_KEY"}`);
   console.log(`  KickTick PID:    ${config.kicktickProgramId.toBase58()}`);
   console.log(`  TxOracle PID:    ${config.txoracleProgramId.toBase58()}`);
   console.log(`  WS Port:         ${config.wsPort}`);
@@ -73,9 +72,7 @@ async function main(): Promise<void> {
 
   if (!config.txlineApiToken) {
     console.log("Activating API token (World Cup free tier)...");
-    const keypairPath = config.solanaKeypairPath.replace(/^~/, process.env.HOME || "");
-    const keypairData = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
-    const keypair = Keypair.fromSecretKey(new Uint8Array(keypairData));
+    const keypair = Keypair.fromSecretKey(Buffer.from(config.solanaPrivateKey, "hex"));
     try {
       const connection = new Connection(config.solanaRpcUrl, "confirmed");
       await getOrCreateAssociatedTokenAccount(
@@ -149,17 +146,42 @@ async function main(): Promise<void> {
     console.error("Failed to fetch fixtures:", err instanceof Error ? err.message : err);
   }
 
-  const activeFixtures = fixtures.slice(0, 5);
+  const activeFixtures = fixtures;
   for (const fixture of activeFixtures) {
     const fixtureId = fixture.FixtureId;
+    let matchState: Awaited<ReturnType<typeof fixtureWatcher.loadFixture>>;
     try {
-      const state = await fixtureWatcher.loadFixture(fixtureId);
+      matchState = await fixtureWatcher.loadFixture(fixtureId);
       console.log(
-        `  Fixture ${fixtureId}: ${state.participants.home} vs ${state.participants.away} [${state.currentPeriod}]`,
+        `  Fixture ${fixtureId}: ${matchState.participants.home} vs ${matchState.participants.away} [${matchState.currentPeriod}]`,
       );
-      marketTrigger.startCronWindows(fixtureId);
     } catch (err) {
       console.error(`  Failed to load fixture ${fixtureId}:`, err instanceof Error ? err.message : err);
+      continue;
+    }
+
+    // Init Match PDA on-chain if not yet created
+    const [matchPda] = AnchorClient.deriveMatchPda(fixtureId, config.kicktickProgramId);
+    const rpcConn = new Connection(config.solanaRpcUrl, "confirmed");
+    const matchOnChain = await rpcConn.getAccountInfo(matchPda);
+    if (matchOnChain) {
+      console.log(`  Match ${fixtureId}: already on-chain (${matchPda.toBase58()})`);
+    } else {
+      try {
+        const { sig } = await anchorClient.initMatch(
+          fixtureId, matchState.participants.home, matchState.participants.away,
+        );
+        console.log(`  Match ${fixtureId}: created on-chain (${matchPda.toBase58()}, tx: ${sig})`);
+      } catch (err) {
+        console.error(`  Match ${fixtureId}: initMatch failed — skipping`, err instanceof Error ? err.message : err);
+        continue;
+      }
+    }
+
+    try {
+      marketTrigger.startCronWindows(fixtureId);
+    } catch (err) {
+      console.error(`  Failed to start cron for fixture ${fixtureId}:`, err instanceof Error ? err.message : err);
     }
   }
 

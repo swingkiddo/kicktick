@@ -1,4 +1,3 @@
-import fs from "fs";
 import {
   PublicKey,
   ComputeBudgetProgram,
@@ -127,15 +126,6 @@ export class AnchorClientError extends Error {
   }
 }
 
-// ── Helper: expand ~ to home dir ──
-
-function expandHome(filePath: string): string {
-  if (filePath.startsWith("~")) {
-    return filePath.replace("~", process.env.HOME || process.env.USERPROFILE || "");
-  }
-  return filePath;
-}
-
 function camelCase(s: string): string {
   const match = s.match(/^([A-Z]+)([A-Z][a-z])/);
   if (match) {
@@ -152,6 +142,15 @@ function toLeBytes64(n: number): Buffer {
 
 // ── AnchorClient ──
 
+// Account namespace shape — keys match Anchor 1.0 camelCase conversion
+type Accounts = {
+  config: { fetch(address: PublicKey): Promise<any> };
+  match: { fetch(address: PublicKey): Promise<any> };
+  round: { fetch(address: PublicKey): Promise<any> };
+  position: { fetch(address: PublicKey): Promise<any> };
+  sponsorVault: { fetch(address: PublicKey): Promise<any> };
+};
+
 export class AnchorClient {
   private program: Program;
   private provider: AnchorProvider;
@@ -163,10 +162,8 @@ export class AnchorClient {
     // Override IDL address with configured program ID in case they differ
     const idl = { ...kicktickIdl, address: config.kicktickProgramId.toBase58() };
 
-    // Load wallet from keypair file
-    const keypairPath = expandHome(config.solanaKeypairPath);
-    const keypairData = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
-    const keypair = Keypair.fromSecretKey(new Uint8Array(keypairData));
+    // Load wallet from SOLANA_PRIVATE_KEY
+    const keypair = Keypair.fromSecretKey(Buffer.from(config.solanaPrivateKey, "hex"));
     const wallet = new Wallet(keypair);
 
     const connection = new Connection(config.solanaRpcUrl, "confirmed");
@@ -569,15 +566,15 @@ export class AnchorClient {
   }
 
   async fetchRound(roundPda: PublicKey): Promise<any> {
-    return this.program.account.round.fetch(roundPda);
+    return (this.program.account as Accounts).round.fetch(roundPda);
   }
 
   async fetchMatch(matchPda: PublicKey): Promise<any> {
-    return (this.program.account as any).match_.fetch(matchPda);
+    return (this.program.account as Accounts).match.fetch(matchPda);
   }
 
   async fetchConfig(): Promise<any> {
     const [configPda] = AnchorClient.deriveConfigPda(this.programId);
-    return this.program.account.config.fetch(configPda);
+    return (this.program.account as Accounts).config.fetch(configPda);
   }
 }

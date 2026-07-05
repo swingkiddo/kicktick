@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { PublicKey } from "@solana/web3.js";
+import { DEFAULT_KICKTICK_PROGRAM_ID } from "../../src/config";
 import { MarketTrigger, TriggerAction, FINALITY_DELAY_SECONDS, MARKET_TIMINGS } from "../../src/market/triggers";
 import {
   SoccerAction,
@@ -19,7 +20,7 @@ import {
 } from "../../src/market/event-parser";
 import type { MatchState } from "../../src/market/fixture-watcher";
 
-const PROGRAM_ID = new PublicKey("CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc");
+const PROGRAM_ID = DEFAULT_KICKTICK_PROGRAM_ID;
 const FIXTURE_ID = 1001;
 
 function makeMatchState(overrides?: Partial<MatchState>): MatchState {

@@ -2,6 +2,10 @@ import { expect } from "chai";
 import { PublicKey, SystemProgram, Keypair } from "@solana/web3.js";
 import { BN } from "@anchor-lang/core";
 import {
+  DEFAULT_KICKTICK_PROGRAM_ID,
+  DEFAULT_TXORACLE_PROGRAM_ID,
+} from "../../src/config";
+import {
   AnchorClient,
   AnchorClientError,
   MarketType,
@@ -16,8 +20,8 @@ function camelCase(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
-const PROGRAM_ID = new PublicKey("CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc");
-const TXORACLE_PROGRAM_ID = new PublicKey("6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J");
+const PROGRAM_ID = DEFAULT_KICKTICK_PROGRAM_ID;
+const TXORACLE_PROGRAM_ID = DEFAULT_TXORACLE_PROGRAM_ID;
 
 function toLeBytes64(value: number): Buffer {
   const buf = Buffer.alloc(8);

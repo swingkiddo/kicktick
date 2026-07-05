@@ -6,13 +6,13 @@ import {
   PublicKey,
 } from "@solana/web3.js";
 import { AnchorClient, MarketType } from "../../src/clients/anchor-client";
-import { Config } from "../../src/config";
+import { DEFAULT_KICKTICK_PROGRAM_ID, Config } from "../../src/config";
 import { ChildProcess, spawn, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
 
-const PROGRAM_ID = "CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc";
+const PROGRAM_ID = DEFAULT_KICKTICK_PROGRAM_ID.toBase58();
 const PROGRAM_SO = path.resolve(
   __dirname,
   "../../../kicktick/target/deploy/kicktick.so",
@@ -27,13 +27,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function makeTestConfig(keypairPath: string): Config {
+function makeTestConfig(keypair: Keypair): Config {
   return {
     txlineJwt: "",
     txlineApiToken: "",
     txlineApiHost: "",
     solanaRpcUrl: RPC_URL,
-    solanaKeypairPath: keypairPath,
+    solanaPrivateKey: Buffer.from(keypair.secretKey).toString("hex"),
     kicktickProgramId: new PublicKey(PROGRAM_ID),
     txoracleProgramId: new PublicKey(
       "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J",
@@ -50,7 +50,6 @@ describe("AnchorClient Integration (localnet)", function () {
 
   let validator: ChildProcess;
   let adminKeypair: Keypair;
-  let keypairPath: string;
   let client: AnchorClient;
   let connection: Connection;
   let matchPda: PublicKey;
@@ -63,12 +62,6 @@ describe("AnchorClient Integration (localnet)", function () {
     }
 
     adminKeypair = Keypair.generate();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kicktick-test-"));
-    keypairPath = path.join(tmpDir, "admin.json");
-    fs.writeFileSync(
-      keypairPath,
-      JSON.stringify(Array.from(adminKeypair.secretKey)),
-    );
 
     const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "kicktick-ledger-"));
 
@@ -109,7 +102,7 @@ describe("AnchorClient Integration (localnet)", function () {
     );
     await connection.confirmTransaction(sig, "confirmed");
 
-    client = new AnchorClient(makeTestConfig(keypairPath));
+    client = new AnchorClient(makeTestConfig(adminKeypair));
 
     await client.initConfig();
 

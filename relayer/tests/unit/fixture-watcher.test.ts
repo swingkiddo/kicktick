@@ -6,11 +6,12 @@ import {
   StatusId,
   GoalType,
 } from "../../src/market/event-parser";
+import { DEFAULT_KICKTICK_PROGRAM_ID } from "../../src/config";
 import type { Config } from "../../src/config";
 import type { TxLineClient } from "../../src/clients/txline-client";
 import type { FixtureRecord, ScoresRecord } from "@swingkiddo/txodds-client/dist/types";
 
-const PROGRAM_ID = new PublicKey("CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc");
+const PROGRAM_ID = DEFAULT_KICKTICK_PROGRAM_ID;
 const FIXTURE_ID = 42;
 
 function makeConfig(): Config {
