@@ -14,6 +14,7 @@ export interface Config {
   usdtMint: PublicKey;
   txlMint: PublicKey;
   wsPort: number;
+  competitionId: number;
 }
 
 export function loadConfig(): Config {
@@ -41,5 +42,6 @@ export function loadConfig(): Config {
         "4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG"
     ),
     wsPort: parseInt(process.env.WS_PORT || "8080", 10),
+    competitionId: parseInt(process.env.COMPETITION_ID || "72", 10),
   };
 }

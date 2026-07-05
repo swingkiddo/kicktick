@@ -84,10 +84,10 @@ async function main(): Promise<void> {
   wsServer.start();
   console.log(`WS server listening on port ${config.wsPort}`);
 
-  console.log("Fetching fixtures for competition 72 (World Cup)...");
+  console.log(`Fetching fixtures for competition ${config.competitionId} (World Cup)...`);
   let fixtures: { FixtureId: number }[] = [];
   try {
-    fixtures = (await txlineClient.getFixtures(72)) as FixtureRecord[];
+    fixtures = (await txlineClient.getFixtures(config.competitionId)) as FixtureRecord[];
     console.log(`Loaded ${fixtures.length} fixtures.`);
   } catch (err) {
     console.error("Failed to fetch fixtures:", err instanceof Error ? err.message : err);
@@ -117,6 +117,8 @@ async function main(): Promise<void> {
 
         const fixtureId = rawData.fixtureId;
         if (!fixtureId) continue;
+
+        if (typeof rawData.competitionId === "number" && rawData.competitionId !== config.competitionId) continue;
 
         const soccerEvent = parseSoccerEvent(event);
         if (!soccerEvent) {
