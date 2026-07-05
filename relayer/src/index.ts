@@ -6,7 +6,7 @@ import { Crank, CrankStatus } from "./settlement/crank";
 import { WsServer, WsServerMessage } from "./api/ws-server";
 import { MarketTrigger } from "./market/triggers";
 import { FixtureWatcher } from "./market/fixture-watcher";
-import { parseFootballEvent } from "./market/event-parser";
+import { parseSoccerEvent } from "./market/event-parser";
 import type { FixtureRecord } from "@swingkiddo/txodds-client";
 
 function getRoundMessage(status: CrankStatus): WsServerMessage | null {
@@ -111,27 +111,20 @@ async function main(): Promise<void> {
     console.log("Starting SSE scores stream...");
     for await (const event of txlineClient.streamScores()) {
       try {
+        if (event.event === "heartbeat") continue;
         const rawData = JSON.parse(event.data);
-        const fixtureId: number | undefined = rawData.FixtureId;
+        if (Object.keys(rawData).length === 1 && "Ts" in rawData) continue;
+
+        const fixtureId = rawData.fixtureId;
         if (!fixtureId) continue;
 
-        const footballEvent = parseFootballEvent(event);
-        fixtureWatcher.processEvent(footballEvent, fixtureId);
+        const soccerEvent = parseSoccerEvent(event);
+        if (!soccerEvent) {
+          console.log(`[SKIP] action=${rawData.action} sportId=${rawData.sportId} gameState=${rawData.gameState} fixtureId=${rawData.fixtureId}`);
+          continue;
+        }
 
-        const matchState = fixtureWatcher.getFixtureState(fixtureId);
-        if (!matchState) continue;
-
-        marketTrigger.processEvent(footballEvent, fixtureId, matchState);
-
-        wsServer.broadcastToMatch(fixtureId, {
-          type: "football_event",
-          data: {
-            action: footballEvent.action,
-            fixtureId,
-            participant: "participant" in footballEvent && typeof footballEvent.participant === "number" ? footballEvent.participant : undefined,
-            description: footballEvent.action,
-          },
-        });
+        fixtureWatcher.processEvent(soccerEvent, fixtureId);
       } catch (err) {
         console.error("SSE event error:", err instanceof Error ? err.message : err);
       }
@@ -169,7 +162,11 @@ async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  await sseLoop;
+  try {
+    await sseLoop;
+  } catch (err) {
+    console.error("SSE stream ended:", err instanceof Error ? err.message : err);
+  }
 }
 
 main().catch((err) => {
