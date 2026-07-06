@@ -174,6 +174,24 @@ async function main(): Promise<void> {
   wsServer.start();
   console.log(`WS server listening on port ${config.wsPort}`);
 
+  wsServer.on("subscribe_all", (ws) => {
+    const allFixtures = fixtureWatcher.getAllFixtures();
+    for (const matchState of allFixtures) {
+      ws.send(JSON.stringify({
+        type: "match_state",
+        data: {
+          fixtureId: matchState.fixtureId,
+          status: String(matchState.status),
+          homeScore: matchState.homeScore,
+          awayScore: matchState.awayScore,
+          currentPeriod: matchState.currentPeriod,
+          matchClockMs: matchState.matchClockMs,
+        },
+      }));
+    }
+    console.log(`[WS] Sent ${allFixtures.length} match states to new subscriber`);
+  });
+
   console.log(`Fetching fixtures for competition ${config.competitionId} (World Cup)...`);
   let fixtures: { FixtureId: number }[] = [];
   try {
