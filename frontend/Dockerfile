@@ -1,17 +1,12 @@
 # syntax=docker/dockerfile:1
-# KickTick Frontend — Next.js 14 + Node.js 22
-# Build: docker build -t kicktick-frontend .
-# Run dev:  docker run --rm -it -v $(pwd):/app -p 3000:3000 kicktick-frontend npm run dev
-# Run prod: docker run --rm -it -p 3000:3000 kicktick-frontend npm start
+# KickTick Frontend — Vite + React + Node.js 22
 
 FROM node:22-alpine AS base
 WORKDIR /app
 
-# Install build deps
-RUN apk add --no-cache libc6-compat
-
 # --- Dependencies stage ---
 FROM base AS deps
+RUN apk add --no-cache python3 make g++ linux-headers eudev-dev
 COPY package*.json ./
 RUN npm ci
 
@@ -27,12 +22,9 @@ COPY . .
 EXPOSE 3000
 CMD ["npm", "run", "dev"]
 
-# --- Prod stage ---
-FROM base AS prod
-ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package*.json ./
-EXPOSE 3000
-CMD ["npm", "start"]
+# --- Prod stage (nginx for static serving) ---
+FROM nginx:alpine AS prod
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
