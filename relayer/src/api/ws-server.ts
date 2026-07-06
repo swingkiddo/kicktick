@@ -9,11 +9,14 @@ export type WsServerMessage =
   | { type: "round_cancelled"; data: { fixtureId: number; roundId: number } }
   | { type: "football_event"; data: { action: string; fixtureId: number; participant?: number; description: string } }
   | { type: "tx_status"; data: { fixtureId: number; roundId: number; status: string; txSig?: string; error?: string } }
+  | { type: "system_status"; data: { clientCount: number; uptime: number; activeFixtureCount: number; solBalance: number } }
+  | { type: "error_log"; data: { message: string; timestamp: number; fixtureId?: number; roundId?: number } }
   | { type: "error"; data: { message: string } };
 
 export type WsClientMessage =
   | { type: "subscribe_match"; data: { fixtureId: number } }
   | { type: "unsubscribe_match"; data: { fixtureId: number } }
+  | { type: "subscribe_all" }
   | { type: "ping" };
 
 interface ClientState {
@@ -75,6 +78,11 @@ export class WsServer extends EventEmitter {
             this.subscriptions.get(fixtureId)?.delete(ws);
             state.subscribedFixtures.delete(fixtureId);
             this.emit("unsubscribe", fixtureId);
+            break;
+          }
+
+          case "subscribe_all": {
+            this.emit("subscribe_all", ws);
             break;
           }
         }

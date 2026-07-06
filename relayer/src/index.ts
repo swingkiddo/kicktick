@@ -4,6 +4,8 @@ import {
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import path from "path";
+import fs from "fs";
 import { loadConfig } from "./config";
 import { TxLineClient } from "./clients/txline-client";
 import { AnchorClient } from "./clients/anchor-client";
@@ -11,10 +13,19 @@ import { activateApiToken } from "./clients/txline-auth";
 import { ProofGatherer } from "./settlement/proof-gatherer";
 import { Crank, CrankStatus } from "./settlement/crank";
 import { WsServer, WsServerMessage } from "./api/ws-server";
-import { MarketTrigger } from "./market/triggers";
+import { MarketTrigger, type TriggerAction } from "./market/triggers";
 import { FixtureWatcher } from "./market/fixture-watcher";
 import { parseSoccerEvent } from "./market/event-parser";
+import { normalizeSsePayload } from "./market/sse-normalize";
+import { SseLogger } from "./market/sse-logger";
 import type { FixtureRecord } from "@swingkiddo/txodds-client";
+
+function actionSummary(actions: TriggerAction[]): string {
+  return actions.map(a => {
+    const extra = "marketType" in a ? ` ${(a as any).marketType}` : "";
+    return `${a.type}[${a.fixtureId}:${a.roundId}${extra}]`;
+  }).join(", ");
+}
 
 function getRoundMessage(status: CrankStatus): WsServerMessage | null {
   const { fixtureId, roundId, txSig } = status;
@@ -61,6 +72,10 @@ async function main(): Promise<void> {
   const crank = new Crank(anchorClient, proofGatherer);
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
   const marketTrigger = new MarketTrigger();
+  const sseLogger = new SseLogger(
+    path.resolve(__dirname, `../logs/sse-${new Date().toISOString().replace(/[:.]/g, "-")}.log`),
+  );
+  console.log(`  SSE log file:   ${sseLogger.path}`);
 
   let jwt = config.txlineJwt;
   if (!jwt) {
@@ -110,6 +125,19 @@ async function main(): Promise<void> {
         console.warn(`  API token rejected: ${e instanceof Error ? e.message : e}`);
         throw e;
       }
+
+      // Save API token to .env for reuse
+      const envPath = path.resolve(__dirname, "../.env");
+      let envContent = "";
+      try { envContent = fs.readFileSync(envPath, "utf-8"); } catch {}
+      const tokenLine = `TXLINE_API_TOKEN=${apiToken}`;
+      if (envContent.includes("TXLINE_API_TOKEN=")) {
+        envContent = envContent.replace(/^TXLINE_API_TOKEN=.*$/m, tokenLine);
+      } else {
+        envContent += `\n${tokenLine}\n`;
+      }
+      fs.writeFileSync(envPath, envContent, "utf-8");
+      console.log(`  API token saved to .env`);
     } catch (err) {
       console.error("Failed to activate API token:", err instanceof Error ? err.message : err);
       console.warn("Continuing with limited guest access...");
@@ -125,12 +153,21 @@ async function main(): Promise<void> {
   });
 
   crank.on("error", (err: Error) => {
-    console.error("Crank error:", err.message);
+    console.error(`Crank error: ${err.message}`);
+    wsServer.broadcast({
+      type: "error_log",
+      data: {
+        message: err.message,
+        timestamp: Date.now(),
+      },
+    });
   });
 
   marketTrigger.on("actions", (actions) => {
+    const summary = actionSummary(actions);
+    console.log(`[ACTIONS] ${summary}`);
     crank.executeActions(actions).catch((e: Error) =>
-      console.error("Trigger action error:", e.message),
+      console.error(`Trigger action error: ${e.message} (actions: ${summary})`),
     );
   });
 
@@ -190,23 +227,49 @@ async function main(): Promise<void> {
     for await (const event of txlineClient.streamScores()) {
       try {
         if (event.event === "heartbeat") continue;
-        const rawData = JSON.parse(event.data);
-        if (Object.keys(rawData).length === 1 && "Ts" in rawData) continue;
+        sseLogger.write(event.data);
+        const rawParsed = JSON.parse(event.data);
+        if (Object.keys(rawParsed).length === 1 && "Ts" in rawParsed) continue;
 
-        const fixtureId = rawData.fixtureId;
-        if (!fixtureId) continue;
+        const rawData = normalizeSsePayload(rawParsed);
+        if (!rawData.fixtureId) continue;
 
-        if (typeof rawData.competitionId === "number" && rawData.competitionId !== config.competitionId) continue;
+        if (typeof rawParsed.CompetitionId === "number" && rawParsed.CompetitionId !== config.competitionId) continue;
 
-        const soccerEvent = parseSoccerEvent(event);
+        const soccerEvent = parseSoccerEvent(rawData);
         if (!soccerEvent) {
-          console.log(`[SKIP] action=${rawData.action} sportId=${rawData.sportId} gameState=${rawData.gameState} fixtureId=${rawData.fixtureId}`);
+          console.log(`[SKIP] action=${rawData.action} sportId=${rawParsed.SportId} gameState=${rawData.gameState} fixtureId=${rawData.fixtureId}`);
           continue;
         }
 
-        const matchState = fixtureWatcher.processEvent(soccerEvent, fixtureId);
+        const clockStr = rawData.clock ? `${rawData.clock.seconds}s` : "";
+        console.log(`[EVENT] fixture=${rawData.fixtureId} action=${rawData.action} gameState=${rawData.gameState} seq=${rawData.seq} participant=${rawData.participant ?? "-"} clock=${clockStr}`);
+
+        const matchState = fixtureWatcher.processEvent(soccerEvent, rawData.fixtureId);
         if (matchState) {
-          marketTrigger.processEvent(soccerEvent, fixtureId, matchState);
+          wsServer.broadcast({
+            type: "match_state",
+            data: {
+              fixtureId: matchState.fixtureId,
+              status: String(matchState.status),
+              homeScore: matchState.homeScore,
+              awayScore: matchState.awayScore,
+              currentPeriod: matchState.currentPeriod,
+              matchClockMs: matchState.matchClockMs,
+            },
+          });
+
+          wsServer.broadcast({
+            type: "football_event",
+            data: {
+              action: soccerEvent.action,
+              fixtureId: rawData.fixtureId,
+              participant: soccerEvent.participant,
+              description: `${soccerEvent.action} on fixture ${rawData.fixtureId}`,
+            },
+          });
+
+          marketTrigger.processEvent(soccerEvent, rawData.fixtureId, matchState);
         }
       } catch (err) {
         console.error("SSE event error:", err instanceof Error ? err.message : err);
@@ -221,8 +284,9 @@ async function main(): Promise<void> {
       try {
         const timeoutActions = marketTrigger.checkTimeouts(fixtureId);
         if (timeoutActions.length > 0) {
+          console.log(`[TIMEOUT] fixture=${fixtureId} actions=${actionSummary(timeoutActions)}`);
           crank.executeActions(timeoutActions).catch((e: Error) =>
-            console.error(`Timeout actions error [${fixtureId}]:`, e.message),
+            console.error(`Timeout actions error [${fixtureId}]: ${e.message}`),
           );
         }
       } catch (err) {
@@ -243,14 +307,28 @@ async function main(): Promise<void> {
     }
   }, 60_000);
 
+  const statusTimer = setInterval(() => {
+    wsServer.broadcast({
+      type: "system_status",
+      data: {
+        clientCount: wsServer.clientCount,
+        uptime: process.uptime(),
+        activeFixtureCount: fixtureWatcher.getAllFixtures().length,
+        solBalance: 0,
+      },
+    });
+  }, 30_000);
+
   async function shutdown(): Promise<void> {
     console.log("\nShutting down...");
     clearInterval(timeoutTimer);
     clearInterval(cronTimer);
+    clearInterval(statusTimer);
     for (const ms of fixtureWatcher.getAllFixtures()) {
       marketTrigger.stopCronWindows(ms.fixtureId);
     }
     wsServer.stop();
+    sseLogger.close();
     console.log("Goodbye.");
     process.exit(0);
   }
