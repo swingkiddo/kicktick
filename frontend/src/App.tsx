@@ -3,6 +3,8 @@ import { WalletContextProvider } from '@/lib/WalletContext';
 import Header from '@/components/Header';
 import HomePage from '@/pages/HomePage';
 import AdminPage from '@/pages/AdminPage';
+import { AdminAuthGuard } from '@/admin/AdminAuthGuard';
+import { WebSocketProvider } from '@/admin/WebSocketProvider';
 
 export default function App() {
   return (
@@ -12,8 +14,20 @@ export default function App() {
           <Header />
           <Routes>
             <Route path="/" element={<HomePage />} />
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="/admin/*" element={<AdminPage />} />
+            <Route path="/admin" element={
+              <AdminAuthGuard>
+                <WebSocketProvider>
+                  <AdminPage />
+                </WebSocketProvider>
+              </AdminAuthGuard>
+            } />
+            <Route path="/admin/*" element={
+              <AdminAuthGuard>
+                <WebSocketProvider>
+                  <AdminPage />
+                </WebSocketProvider>
+              </AdminAuthGuard>
+            } />
           </Routes>
         </div>
       </WalletContextProvider>

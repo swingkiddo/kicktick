@@ -7,7 +7,7 @@ export const CONFIG = {
   rpcUrl: 'https://api.devnet.solana.com',
 
   // KickTick program (replace after deploy)
-  kicktickProgramId: 'ECzBneYbzwA4fM4a2qCJdSkbCo2XH2SYorXD21NRyuPf',
+  kicktickProgramId: 'DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ',
 
   // TxODDS Oracle
   txodds: {
