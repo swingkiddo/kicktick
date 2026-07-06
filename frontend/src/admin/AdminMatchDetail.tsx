@@ -21,6 +21,13 @@ export default function AdminMatchDetail() {
   const { publicKey } = useWallet();
   const [matchData, setMatchData] = useState<{ fixtureId: number; address: string; exists: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showOpenRound, setShowOpenRound] = useState(false);
+  const [openRoundForm, setOpenRoundForm] = useState({
+    marketType: 'NextGoalSide',
+    roundId: 1,
+    lockSeconds: 30,
+    deadlineSeconds: 90,
+  });
 
   useEffect(() => {
     if (!fid) return;
@@ -210,7 +217,7 @@ export default function AdminMatchDetail() {
           <div className="flex gap-3">
             <button
               className="btn-primary text-sm"
-              onClick={() => alert('Round open form (Task 9)')}
+              onClick={() => setShowOpenRound(true)}
             >
               + Open Round
             </button>
@@ -223,6 +230,55 @@ export default function AdminMatchDetail() {
           </div>
         </div>
       </section>
+
+      {showOpenRound && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowOpenRound(false)}>
+          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4">Open Round</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Market Type</label>
+                <select
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                  value={openRoundForm.marketType}
+                  onChange={e => setOpenRoundForm(f => ({ ...f, marketType: e.target.value }))}
+                >
+                  {['NextGoalSide', 'GoalInWindow', 'NextCorner', 'CornerInWindow', 'NextYellowCard', 'YellowCardInWindow', 'RedCardInMatch', 'PenaltyShootoutShot', 'PenaltyShot', 'VARCheck'].map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Round ID</label>
+                <input type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                  value={openRoundForm.roundId}
+                  onChange={e => setOpenRoundForm(f => ({ ...f, roundId: Number(e.target.value) }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Lock (s)</label>
+                  <input type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    value={openRoundForm.lockSeconds}
+                    onChange={e => setOpenRoundForm(f => ({ ...f, lockSeconds: Number(e.target.value) }))} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Deadline (s)</label>
+                  <input type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                    value={openRoundForm.deadlineSeconds}
+                    onChange={e => setOpenRoundForm(f => ({ ...f, deadlineSeconds: Number(e.target.value) }))} />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button className="btn-primary text-sm flex-1" onClick={() => {
+                  alert(`TODO: call openRound(fixture=${fid}, marketType=${openRoundForm.marketType}, roundId=${openRoundForm.roundId})`);
+                  setShowOpenRound(false);
+                }}>Open Round</button>
+                <button className="btn-secondary text-sm" onClick={() => setShowOpenRound(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
