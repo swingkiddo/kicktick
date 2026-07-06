@@ -1,4 +1,5 @@
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { Link } from 'react-router-dom';
 
 export default function Header() {
   return (
@@ -18,6 +19,9 @@ export default function Header() {
           >
             Markets
           </a>
+          <Link to="/admin" className="text-sm text-gray-400 hover:text-white transition">
+            Admin
+          </Link>
           <a
             href="https://github.com/Kubo-cmd/kicktick"
             target="_blank"
