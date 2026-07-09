@@ -95,7 +95,7 @@ solana logs --url devnet
 ### Verify Program Deployment
 
 ```bash
-solana program show CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc --url devnet
+solana program show DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ --url devnet
 solana program show 6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J --url devnet
 ```
 
@@ -115,6 +115,29 @@ Expected output:
 ✅ USDT: ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh
    Program: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA (Token)
 ```
+
+## Relayer Crank Errors
+
+### `TxODDS API 404 on /scores/stat-validation: ... could not be found ...`
+
+**Symptom:** Crank emits `settle_onchain` status `failed` with upstream 404 immediately after a market-trigger event. Body contains "A valid, processed scores record for (fixtureId, seq) could not be found" or "processed scores record".
+
+**Cause:** Race between SSE event arrival and TxODDS merklization. The SSE `Seq` is observed before the backend has merklized the corresponding scores record into a Merkle batch. `/stat-validation` is the only API that requires a fully-processed record.
+
+**Fix (already shipped):** Crank wraps `ProofGatherer.gatherProof` in `gatherProofWithRetry` (`relayer/src/settlement/crank.ts`). On 404, only `ProofNotReadyError` triggers retry — 4 attempts, backoff `0/1/2/4s` (≤8s total budget). Other upstream errors fail fast.
+
+**Tuning:** Override `proofMaxAttempts` and `proofBackoffMs` via `CrankOptions` if backend lag exceeds 8s in your region.
+
+**Verify:**
+```bash
+# 1. Spot-check the seq with curl using a known-processed record
+curl -sS "https://txline-dev.txodds.com/api/scores/updates/<fixtureId>" \
+  -H "Authorization: Bearer $TXLINE_JWT" \
+  -H "X-Api-Token: $TXLINE_API_TOKEN" | jq '.[].seq' | tail -5
+# 2. Replay a corner event for that fixture, observe 8s retry path in relayer logs.
+```
+
+**Related:** `relayer/src/settlement/proof-gatherer.ts:ProofNotReadyError`, `relayer/src/settlement/crank.ts:gatherProofWithRetry`.
 
 ## CPI Debug
 

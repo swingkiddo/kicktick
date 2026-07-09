@@ -116,6 +116,9 @@ Implemented in `src/settlement/crank.ts`.
 
 ### Retry Policy
 
+Two independent retry loops protect a `settle_onchain` action:
+
+**Anchor transaction retry** (`executeWithRetry` in `crank.ts`):
 ```typescript
 maxRetries = 3
 retryDelayMs = 1000 (×2 per attempt)
@@ -123,6 +126,30 @@ retryDelayMs = 1000 (×2 per attempt)
 attempt 0 → 1000ms
 attempt 1 → 2000ms
 attempt 2 → 4000ms
+```
+
+**Proof-gather retry** (`gatherProofWithRetry` in `crank.ts`) — only on `ProofNotReadyError`:
+```typescript
+proofMaxAttempts = 4
+proofBackoffMs = [0, 1000, 2000, 4000]   // 0/1/2/4s → ≤8s total
+
+attempt 0 → 0ms
+attempt 1 → 1000ms
+attempt 2 → 2000ms
+attempt 3 → 4000ms
+```
+
+Triggered when `/scores/stat-validation` returns 404 with body matching
+"processed scores record" / "could not be found" — race between SSE event
+arrival and TxODDS merklization. Non-404 errors (auth, network, 5xx) fail fast
+to surface real bugs.
+
+Tunable via `CrankOptions`:
+```typescript
+new Crank(anchorClient, proofGatherer, {
+  proofMaxAttempts: 6,
+  proofBackoffMs: [0, 1000, 2000, 4000, 8000, 16000],
+});
 ```
 
 ### Action Execution

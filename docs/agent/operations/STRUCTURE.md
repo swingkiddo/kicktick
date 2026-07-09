@@ -37,7 +37,7 @@ tags: [structure, files, tree]
 ### Root config
 | Path | Purpose |
 |------|---------|
-| `Anchor.toml` | Devnet cluster, program ID `CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc` |
+| `Anchor.toml` | Devnet cluster, program ID `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` |
 | `Cargo.toml` | Workspace root — Anchor 1.0.0, borsh |
 | `Cargo.lock` | Dependency lock |
 | `rust-toolchain.toml` | Rust 1.96.0 |
@@ -160,18 +160,6 @@ The `client/` directory previously contained a TypeScript SDK (`market-manager.t
 | `txodds-soccer-feed-v1.0.pdf` | - | TxODDS soccer feed specification PDF |
 
 ---
-
-## `.agents/skills/` — Caveman Agent Skills
-
-| Skill | Purpose |
-|-------|---------|
-| `caveman/` | Ultra-compressed communication (~75% token reduction) |
-| `caveman-commit/` | Terse Conventional Commits |
-| `caveman-compress/` | Compress .md files to caveman format |
-| `caveman-help/` | Quick reference card |
-| `caveman-review/` | One-line PR code review |
-| `caveman-stats/` | Session token usage stats |
-| `cavecrew/` | Subagent delegation guide |
 
 ---
 
