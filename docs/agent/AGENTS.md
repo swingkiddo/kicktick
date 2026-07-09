@@ -80,7 +80,7 @@ All docs carry YAML frontmatter (`id`, `type`, `service`, `depends_on`, `related
 
 | Component | Address |
 |-----------|---------|
-| KickTick program | `CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc` |
+| KickTick program | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` |
 | TxOracle program | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` |
 | TxL mint (Token-2022) | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` |
 | USDT mint (Token) | `ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh` |

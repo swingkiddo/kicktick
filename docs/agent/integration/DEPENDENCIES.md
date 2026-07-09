@@ -92,7 +92,7 @@ External:
 │    └── SSE: /api/odds/stream, /api/scores/stream        │
 │                                                          │
 │  Solana Devnet (api.devnet.solana.com)                   │
-│    └── Programs: txoracle (6pW64...), kicktick (CCmcp..)│
+│    └── Programs: txoracle (6pW64...), kicktick (ECzBne..)│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -143,6 +143,6 @@ External:
 | `TXLINE_API_HOST` | `https://txline-dev.txodds.com` | relayer |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | relayer |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | relayer |
-| `KICKTICK_PROGRAM_ID` | `CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc` | relayer |
+| `KICKTICK_PROGRAM_ID` | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` | relayer |
 | `TXORACLE_PROGRAM_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | relayer |
 | `WS_PORT` | `8080` | relayer |

@@ -16,7 +16,7 @@ tags: [environment, network, program-IDs, endpoints]
 
 | Component | Devnet | Mainnet |
 |-----------|--------|---------|
-| **KickTick** | `CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc` | TBD |
+| **KickTick** | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` | TBD |
 | **TxOracle** | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
 
 Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
@@ -45,7 +45,7 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | `TXLINE_API_HOST` | `https://txline-dev.txodds.com` | relayer |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | relayer |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | relayer |
-| `KICKTICK_PROGRAM_ID` | `CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc` | relayer |
+| `KICKTICK_PROGRAM_ID` | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` | relayer |
 | `TXORACLE_PROGRAM_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | relayer |
 | `WS_PORT` | `8080` | relayer |
 

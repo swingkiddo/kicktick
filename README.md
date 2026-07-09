@@ -140,7 +140,7 @@ Deployment info saved to `deployment-{network}.json`.
 
 | Component | Address |
 |-----------|---------|
-| KickTick program | `a9G9tTEmeALLBi2zf7zR4adbpR4U1N3r6cgRtZUV3o2` |
+| KickTick program | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` |
 | TxOracle program | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` |
 | TxL mint (Token-2022) | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` |
 | USDT mint (Token) | `ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh` |
