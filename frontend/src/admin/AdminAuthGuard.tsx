@@ -6,7 +6,6 @@ import { CONFIG } from "@/lib/constants";
 const RPC_URL = CONFIG.rpcUrl;
 const PROGRAM_ID = new PublicKey(CONFIG.kicktickProgramId);
 console.log("PROGRAM_ID", PROGRAM_ID.toBase58());
-п;
 
 function deriveConfigPda(programId: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
