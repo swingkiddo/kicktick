@@ -50,7 +50,7 @@ pub fn handler(
     round.market_type = market_type;
     round.params = RoundParams::new(lock_seconds, deadline_seconds);
     round.settlement_model = match market_type {
-        MarketType::PenaltyShot | MarketType::VARCheck | MarketType::NextGoalSide | MarketType::NextCorner | MarketType::NextYellowCard => SettlementModel::OffChain,
+        MarketType::VARCheck => SettlementModel::OffChain,
         _ => SettlementModel::OnChain,
     };
     round.trigger_sse_seq = None;

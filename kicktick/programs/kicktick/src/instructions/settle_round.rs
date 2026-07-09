@@ -121,46 +121,112 @@ pub fn handler(
         KickTickError::StatKeyMappingNotFound
     );
 
-    // Build CPI instruction data — use Anchor Borsh serialization
-    let ix_data = build_validate_stat_ix(&args)?;
+    // TWO PATH: timeout (two separate CPI calls) vs normal (single CPI call)
+    if args.stat_b.is_some() && args.op.is_none() {
+        // TIMEOUT PATH: two separate CPI calls for ternary markets
+        // CPI call 1: statA only
+        let mut args_a = args.clone();
+        args_a.stat_b = None;
+        args_a.op = None;
+        let ix_data_a = build_validate_stat_ix(&args_a)?;
+        let ix_a = solana_program::instruction::Instruction {
+            program_id: ctx.accounts.txoracle_program.key(),
+            accounts: vec![
+                solana_program::instruction::AccountMeta::new_readonly(
+                    ctx.accounts.daily_scores_merkle_roots.key(),
+                    false,
+                ),
+            ],
+            data: ix_data_a,
+        };
+        let result_a = solana_program::program::invoke(
+            &ix_a,
+            &[
+                ctx.accounts.daily_scores_merkle_roots.to_account_info(),
+                ctx.accounts.txoracle_program.to_account_info(),
+            ],
+        );
 
-    // Build CPI accounts
-    let cpi_accounts = vec![
-        solana_program::instruction::AccountMeta::new_readonly(
-            ctx.accounts.daily_scores_merkle_roots.key(),
-            false,
-        ),
-    ];
-
-    // Build CPI instruction
-    let ix = solana_program::instruction::Instruction {
-        program_id: ctx.accounts.txoracle_program.key(),
-        accounts: cpi_accounts,
-        data: ix_data,
-    };
-
-    // Perform CPI call via raw invoke
-    let result = solana_program::program::invoke(
-        &ix,
-        &[
-            ctx.accounts.daily_scores_merkle_roots.to_account_info(),
-            ctx.accounts.txoracle_program.to_account_info(),
-        ],
-    );
-
-    match result {
-        Ok(()) => {
-            // CPI returned success — predicate was true
+        if result_a.is_ok() {
+            // P1 scored → Home
             apply_outcome(round, true, args.stat_a.stat_to_prove.key)?;
-        }
-        Err(e) => {
-            // PredicateFailed means outcome = false
-            let err_str = e.to_string();
-            if err_str.contains("PredicateFailed") || err_str.contains("0x1781") {
-                apply_outcome(round, false, args.stat_a.stat_to_prove.key)?;
+        } else {
+            // CPI call 2: statB only
+            let stat_b = args.stat_b.as_ref()
+                .expect("stat_b is_some confirmed in timeout branch");
+            let args_b = ValidateStatArgs {
+                ts: args.ts,
+                fixture_summary: args.fixture_summary.clone(),
+                fixture_proof: args.fixture_proof.clone(),
+                main_tree_proof: args.main_tree_proof.clone(),
+                predicate: args.predicate.clone(),
+                stat_a: stat_b.clone(),
+                stat_b: None,
+                op: None,
+            };
+            let ix_data_b = build_validate_stat_ix(&args_b)?;
+            let ix_b = solana_program::instruction::Instruction {
+                program_id: ctx.accounts.txoracle_program.key(),
+                accounts: vec![
+                    solana_program::instruction::AccountMeta::new_readonly(
+                        ctx.accounts.daily_scores_merkle_roots.key(),
+                        false,
+                    ),
+                ],
+                data: ix_data_b,
+            };
+            let result_b = solana_program::program::invoke(
+                &ix_b,
+                &[
+                    ctx.accounts.daily_scores_merkle_roots.to_account_info(),
+                    ctx.accounts.txoracle_program.to_account_info(),
+                ],
+            );
+
+            if result_b.is_ok() {
+                // P2 scored → Away
+                apply_outcome(round, true, stat_b.stat_to_prove.key)?;
             } else {
-                msg!("CPI validate_stat failed: {:?}", e);
-                return Err(KickTickError::CpiFailed.into());
+                // Both CPI calls failed → NoGoal
+                round.outcome = RoundOutcome::NoGoal;
+                round.winner = Some(3);
+            }
+        }
+    } else {
+        // NORMAL PATH: single CPI call (existing logic)
+        let ix_data = build_validate_stat_ix(&args)?;
+        let cpi_accounts = vec![
+            solana_program::instruction::AccountMeta::new_readonly(
+                ctx.accounts.daily_scores_merkle_roots.key(),
+                false,
+            ),
+        ];
+        let ix = solana_program::instruction::Instruction {
+            program_id: ctx.accounts.txoracle_program.key(),
+            accounts: cpi_accounts,
+            data: ix_data,
+        };
+        let result = solana_program::program::invoke(
+            &ix,
+            &[
+                ctx.accounts.daily_scores_merkle_roots.to_account_info(),
+                ctx.accounts.txoracle_program.to_account_info(),
+            ],
+        );
+        match result {
+            Ok(()) => {
+                // CPI returned success — predicate was true
+                apply_outcome(round, true, args.stat_a.stat_to_prove.key)?;
+            }
+            Err(e) => {
+                // PredicateFailed means outcome = false
+                let err_str = e.to_string();
+                if err_str.contains("PredicateFailed") || err_str.contains("0x1781") {
+                    apply_outcome(round, false, args.stat_a.stat_to_prove.key)?;
+                } else {
+                    msg!("CPI validate_stat failed: {:?}", e);
+                    return Err(KickTickError::CpiFailed.into());
+                }
             }
         }
     }

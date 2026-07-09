@@ -20,6 +20,57 @@ const STATKEY_P2_CORNERS = 8;
 
 // ── Exported types ──
 
+export class ProofNotReadyError extends Error {
+  readonly status: number;
+  readonly body: string;
+  readonly fixtureId: number;
+  readonly seq: number;
+  readonly statKey: number;
+
+  constructor(
+    message: string,
+    opts: { status: number; body: string; fixtureId: number; seq: number; statKey: number },
+  ) {
+    super(message);
+    this.name = "ProofNotReadyError";
+    this.status = opts.status;
+    this.body = opts.body;
+    this.fixtureId = opts.fixtureId;
+    this.seq = opts.seq;
+    this.statKey = opts.statKey;
+  }
+}
+
+function isNotReadyBody(body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    lower.includes("could not be found") ||
+    lower.includes("processed scores record") ||
+    lower.includes("not yet processed")
+  );
+}
+
+function classifyUpstreamError(
+  err: unknown,
+  fixtureId: number,
+  seq: number,
+  statKey: number,
+): never {
+  const msg = err instanceof Error ? err.message : String(err);
+  const m = msg.match(/TxODDS API (\d+) on [^:]+:\s*(.*)$/s);
+  if (m) {
+    const status = Number(m[1]);
+    const body = m[2];
+    if (status === 404 && isNotReadyBody(body)) {
+      throw new ProofNotReadyError(
+        `stat-validation not yet ready for fixture=${fixtureId} seq=${seq} statKey=${statKey}: ${body}`,
+        { status, body, fixtureId, seq, statKey },
+      );
+    }
+  }
+  throw err instanceof Error ? err : new Error(msg);
+}
+
 export interface ProofNode {
   hash: number[];
   is_right_sibling: boolean;
@@ -98,7 +149,9 @@ export class ProofGatherer {
     statKey: number,
     period: number,
   ): Promise<ProofData> {
-    const result = await this.client.getStatValidation(fixtureId, seq, statKey);
+    const result = await this.client
+      .getStatValidation(fixtureId, seq, statKey)
+      .catch((err: unknown) => classifyUpstreamError(err, fixtureId, seq, statKey));
 
     if (!result) {
       throw new Error(
@@ -190,6 +243,7 @@ export class ProofGatherer {
           { statKey: PERIOD_PE + 2, period: PERIOD_PE },
         ];
       case MarketType.PenaltyShot:
+        return [{ statKey: 159, period: PERIOD_H1 }]; // P1 penalty goals default
       case MarketType.VARCheck:
         return [];
     }

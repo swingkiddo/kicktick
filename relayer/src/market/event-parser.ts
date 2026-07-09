@@ -323,12 +323,16 @@ export function gameStateToStatusId(gameState: string): StatusId | undefined {
   return GAME_STATE_MAP[gameState];
 }
 
-export function parseSoccerEvent(event: TxLineSseEvent): SoccerEvent | null {
+export function parseSoccerEvent(input: TxLineSseEvent | ScoresSseData): SoccerEvent | null {
   let raw: ScoresSseData;
-  try {
-    raw = JSON.parse(event.data);
-  } catch {
-    throw new Error(`Invalid JSON in SSE data: ${event.data}`);
+  if ("data" in input && typeof (input as TxLineSseEvent).data === "string") {
+    try {
+      raw = JSON.parse((input as TxLineSseEvent).data);
+    } catch {
+      throw new Error(`Invalid JSON in SSE data: ${(input as TxLineSseEvent).data}`);
+    }
+  } else {
+    raw = input as ScoresSseData;
   }
 
   const action = raw.action;

@@ -8,7 +8,7 @@ import {
   StatusId,
   gameStateToStatusId,
 } from "./event-parser";
-import type { FixtureRecord, ScoresRecord } from "@swingkiddo/txodds-client/dist/types";
+import type { FixtureRecord } from "@swingkiddo/txodds-client/dist/types";
 
 // ── Interfaces ──
 
@@ -152,13 +152,11 @@ export class FixtureWatcher extends EventEmitter {
       // Non-critical — proceed with empty participant names
     }
 
-    const currentScore: ScoresRecord | null =
-      scores.length > 0 ? scores[scores.length - 1] : null;
-    const status = currentScore
-      ? (typeof currentScore.gameState === "string"
-        ? gameStateToStatusId(currentScore.gameState) ?? StatusId.NotStarted
-        : (currentScore.gameState as StatusId))
-      : StatusId.NotStarted;
+    const records = scores as any[];
+    const bestRecord = records.length > 0
+      ? records.reduce((best, r) => ((r?.Seq ?? 0) > (best?.Seq ?? 0) ? r : best))
+      : null;
+    const status = bestRecord?.StatusId ?? StatusId.NotStarted;
 
     const state: MatchState = {
       fixtureId,
@@ -166,10 +164,10 @@ export class FixtureWatcher extends EventEmitter {
       matchPdaBump,
       status,
       currentPeriod: STATUS_TO_PERIOD[status] || "NS",
-      homeScore: currentScore?.homeScore ?? 0,
-      awayScore: currentScore?.awayScore ?? 0,
-      matchClockMs: currentScore ? (currentScore.ts || 0) * 1000 : 0,
-      lastEventAt: currentScore ? (currentScore.ts || 0) * 1000 : Date.now(),
+      homeScore: bestRecord?.Score?.Participant1?.Total?.Goals ?? 0,
+      awayScore: bestRecord?.Score?.Participant2?.Total?.Goals ?? 0,
+      matchClockMs: bestRecord?.Clock?.Seconds != null ? bestRecord.Clock.Seconds * 1000 : 0,
+      lastEventAt: bestRecord?.Ts ? bestRecord.Ts * 1000 : Date.now(),
       roundCounter: 0,
       participants,
       startTime,

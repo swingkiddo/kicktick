@@ -25,7 +25,7 @@ export enum RoundSide {
 
 export type TriggerAction =
   | { type: "open_round"; fixtureId: number; matchPda: string; roundId: number; marketType: MarketType; lockSeconds: number; deadlineSeconds: number; triggerSseSeq?: number }
-  | { type: "settle_onchain"; fixtureId: number; matchPda: string; roundId: number; marketType: MarketType; settlementSeq: number }
+  | { type: "settle_onchain"; fixtureId: number; matchPda: string; roundId: number; marketType: MarketType; settlementSeq: number; targetStatKey?: number }
   | { type: "settle_offchain"; fixtureId: number; matchPda: string; roundId: number; marketType: MarketType; outcome: "Yes" | "No" | "Home" | "Away" | "NoGoal" | "Cancelled" }
   | { type: "confirm_round"; fixtureId: number; matchPda: string; roundId: number };
 
@@ -149,6 +149,7 @@ export class MarketTrigger extends EventEmitter {
   checkTimeouts(fixtureId: number): TriggerAction[] {
     const f = this.fixtures.get(fixtureId);
     if (!f) return [];
+    if (!f.matchPda) return [];
 
     const actions: TriggerAction[] = [];
     const now = Date.now();
@@ -174,17 +175,19 @@ export class MarketTrigger extends EventEmitter {
       round.status = "settling";
       round.settledAt = now;
 
+      const seq = this.lastSeenSeq.get(fixtureId) ?? 0;
+
       switch (round.marketType) {
         case MarketType.NextGoalSide:
         case MarketType.NextCorner:
         case MarketType.NextYellowCard:
           actions.push({
-            type: "settle_offchain",
+            type: "settle_onchain",
             fixtureId,
             matchPda: f.matchPda,
             roundId: round.roundId,
             marketType: round.marketType,
-            outcome: "NoGoal",
+            settlementSeq: seq,
           });
           break;
 
@@ -203,6 +206,15 @@ export class MarketTrigger extends EventEmitter {
           break;
 
         case MarketType.PenaltyShot:
+          actions.push({
+            type: "settle_onchain",
+            fixtureId,
+            matchPda: f.matchPda,
+            roundId: round.roundId,
+            marketType: round.marketType,
+            settlementSeq: seq,
+          });
+          break;
         case MarketType.VARCheck:
           actions.push({
             type: "settle_offchain",
@@ -291,7 +303,7 @@ export class MarketTrigger extends EventEmitter {
     actions.push({
       type: "open_round",
       fixtureId,
-      matchPda: f.matchPda,
+      matchPda: state.matchPda.toBase58(),
       roundId,
       marketType,
       lockSeconds: timings.lock,
@@ -309,16 +321,16 @@ export class MarketTrigger extends EventEmitter {
 
     const current = this.findOpenRound(f, MarketType.NextGoalSide);
     if (current) {
-      const outcome = event.participant === 1 ? "Home" : "Away";
       current.status = "settling";
       current.settledAt = Date.now();
       actions.push({
-        type: "settle_offchain",
+        type: "settle_onchain",
         fixtureId,
         matchPda: f.matchPda,
         roundId: current.roundId,
         marketType: MarketType.NextGoalSide,
-        outcome,
+        settlementSeq: event.seq!,
+        targetStatKey: event.participant === 1 ? 1 : 2,
       });
     }
 
@@ -335,16 +347,16 @@ export class MarketTrigger extends EventEmitter {
 
     const current = this.findOpenRound(f, MarketType.NextCorner);
     if (current) {
-      const outcome = event.participant === 1 ? "Home" : "Away";
       current.status = "settling";
       current.settledAt = Date.now();
       actions.push({
-        type: "settle_offchain",
+        type: "settle_onchain",
         fixtureId,
         matchPda: f.matchPda,
         roundId: current.roundId,
         marketType: MarketType.NextCorner,
-        outcome,
+        settlementSeq: event.seq!,
+        targetStatKey: event.participant === 1 ? 7 : 8,
       });
     }
 
@@ -361,16 +373,16 @@ export class MarketTrigger extends EventEmitter {
 
     const current = this.findOpenRound(f, MarketType.NextYellowCard);
     if (current) {
-      const outcome = event.participant === 1 ? "Home" : "Away";
       current.status = "settling";
       current.settledAt = Date.now();
       actions.push({
-        type: "settle_offchain",
+        type: "settle_onchain",
         fixtureId,
         matchPda: f.matchPda,
         roundId: current.roundId,
         marketType: MarketType.NextYellowCard,
-        outcome,
+        settlementSeq: event.seq!,
+        targetStatKey: event.participant === 1 ? 3 : 4,
       });
     }
 
@@ -378,7 +390,7 @@ export class MarketTrigger extends EventEmitter {
   }
 
   private handleRedCard(
-    _event: RedCardEvent,
+    event: RedCardEvent,
     fixtureId: number,
     state: MatchState,
     actions: TriggerAction[],
@@ -390,12 +402,13 @@ export class MarketTrigger extends EventEmitter {
       current.status = "settling";
       current.settledAt = Date.now();
       actions.push({
-        type: "settle_offchain",
+        type: "settle_onchain",
         fixtureId,
         matchPda: f.matchPda,
         roundId: current.roundId,
         marketType: MarketType.RedCardInMatch,
-        outcome: "Yes",
+        settlementSeq: event.seq!,
+        targetStatKey: 5,
       });
     }
   }
@@ -426,16 +439,17 @@ export class MarketTrigger extends EventEmitter {
 
     const current = this.findOpenRound(f, MarketType.PenaltyShot);
     if (current) {
-      const outcome = event.outcome === "Scored" ? "Yes" : "No";
       current.status = "settling";
       current.settledAt = Date.now();
+      const targetStatKey = event.participant === 1 ? 159 : (event.participant === 2 ? 160 : 159);
       actions.push({
-        type: "settle_offchain",
+        type: "settle_onchain",
         fixtureId,
         matchPda: f.matchPda,
         roundId: current.roundId,
         marketType: MarketType.PenaltyShot,
-        outcome,
+        settlementSeq: event.seq!,
+        targetStatKey,
       });
     }
 
@@ -529,11 +543,15 @@ export class MarketTrigger extends EventEmitter {
     if (!f) return;
 
     const onChainMarkets = new Set<MarketType>([
+      MarketType.NextGoalSide,
+      MarketType.NextCorner,
+      MarketType.NextYellowCard,
       MarketType.GoalInWindow,
       MarketType.CornerInWindow,
       MarketType.YellowCardInWindow,
       MarketType.RedCardInMatch,
       MarketType.PenaltyShootoutShot,
+      MarketType.PenaltyShot,
     ]);
 
     const seq = this.lastSeenSeq.get(fixtureId) ?? 0;

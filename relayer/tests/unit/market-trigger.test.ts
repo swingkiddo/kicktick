@@ -78,9 +78,9 @@ describe("MarketTrigger", () => {
         trigger.processEvent(goal2, FIXTURE_ID, state);
 
         const all = flatActions();
-        const settle = all.find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.NextGoalSide);
+        const settle = all.find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.NextGoalSide);
         expect(settle).to.exist;
-        expect((settle as any).outcome).to.equal("Away");
+        expect((settle as any).targetStatKey).to.equal(2);
 
         const opens = all.filter((a) => a.type === "open_round" && (a as any).marketType === MarketType.NextGoalSide);
         expect(opens).to.have.length(2);
@@ -94,9 +94,9 @@ describe("MarketTrigger", () => {
         const goal2: GoalEvent = { action: SoccerAction.Goal, participant: 1, goalType: GoalType.Shot };
         trigger.processEvent(goal2, FIXTURE_ID, state);
 
-        const settle = flatActions().find((a) => a.type === "settle_offchain");
+        const settle = flatActions().find((a) => a.type === "settle_onchain");
         expect(settle).to.exist;
-        expect((settle as any).outcome).to.equal("Home");
+        expect((settle as any).targetStatKey).to.equal(1);
       });
     });
 
@@ -109,9 +109,9 @@ describe("MarketTrigger", () => {
         trigger.processEvent(corner2, FIXTURE_ID, state);
 
         const all = flatActions();
-        const settle = all.find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.NextCorner);
+        const settle = all.find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.NextCorner);
         expect(settle).to.exist;
-        expect((settle as any).outcome).to.equal("Away");
+        expect((settle as any).targetStatKey).to.equal(8);
 
         const opens = all.filter((a) => a.type === "open_round" && (a as any).marketType === MarketType.NextCorner);
         expect(opens).to.have.length(2);
@@ -127,9 +127,9 @@ describe("MarketTrigger", () => {
         trigger.processEvent(yc2, FIXTURE_ID, state);
 
         const all = flatActions();
-        const settle = all.find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.NextYellowCard);
+        const settle = all.find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.NextYellowCard);
         expect(settle).to.exist;
-        expect((settle as any).outcome).to.equal("Away");
+        expect((settle as any).targetStatKey).to.equal(4);
 
         const opens = all.filter((a) => a.type === "open_round" && (a as any).marketType === MarketType.NextYellowCard);
         expect(opens).to.have.length(2);
@@ -149,9 +149,9 @@ describe("MarketTrigger", () => {
         };
         trigger.processEvent(redCard, FIXTURE_ID, state);
 
-        const settle = flatActions().find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.RedCardInMatch);
+        const settle = flatActions().find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.RedCardInMatch);
         expect(settle).to.exist;
-        expect((settle as any).outcome).to.equal("Yes");
+        expect((settle as any).targetStatKey).to.equal(5);
       });
 
       it("does nothing when no open RedCardInMatch round", () => {
@@ -189,9 +189,9 @@ describe("MarketTrigger", () => {
         };
         trigger.processEvent(outcome, FIXTURE_ID, state);
 
-        const settle = flatActions().find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.PenaltyShot);
+        const settle = flatActions().find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.PenaltyShot);
         expect(settle).to.exist;
-        expect((settle as any).outcome).to.equal("Yes");
+        expect((settle as any).targetStatKey).to.equal(159);
       });
 
       it("settles PenaltyShot as No on Missed", () => {
@@ -206,9 +206,9 @@ describe("MarketTrigger", () => {
         };
         trigger.processEvent(outcome, FIXTURE_ID, state);
 
-        const settle = flatActions().find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.PenaltyShot);
+        const settle = flatActions().find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.PenaltyShot);
         expect(settle).to.exist;
-        expect((settle as any).outcome).to.equal("No");
+        expect((settle as any).targetStatKey).to.equal(159);
       });
 
       it("extends deadline by 60s on Retake, no settlement", () => {
@@ -308,6 +308,10 @@ describe("MarketTrigger", () => {
       trigger.processEvent(startEvt, FIXTURE_ID, state);
       emittedActions = [];
 
+      const varEvt: VarCheckEvent = { action: SoccerAction.Var, varType: VarType.Goal };
+      trigger.processEvent(varEvt, FIXTURE_ID, state);
+      emittedActions = [];
+
       const endEvt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.FullTime };
       trigger.processEvent(endEvt, FIXTURE_ID, state);
 
@@ -330,6 +334,10 @@ describe("MarketTrigger", () => {
     it("FinishedAfterExtraTime settles all open rounds as No", () => {
       const startEvt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.FirstHalf };
       trigger.processEvent(startEvt, FIXTURE_ID, state);
+      emittedActions = [];
+
+      const varEvt: VarCheckEvent = { action: SoccerAction.Var, varType: VarType.Goal };
+      trigger.processEvent(varEvt, FIXTURE_ID, state);
       emittedActions = [];
 
       const endEvt: StatusChangeEvent = { action: SoccerAction.Status, statusId: StatusId.FinishedAfterExtraTime };
@@ -374,12 +382,12 @@ describe("MarketTrigger", () => {
       round!.expiresAt = Date.now() - 1;
 
       const actions = trigger.checkTimeouts(FIXTURE_ID);
-      const settle = actions.find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.NextGoalSide);
+      const settle = actions.find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.NextGoalSide);
       expect(settle).to.exist;
-      expect((settle as any).outcome).to.equal("NoGoal");
+      expect((settle as any).settlementSeq).to.equal(0);
     });
 
-    it("expired NextCorner → settle_offchain with outcome=NoGoal", () => {
+    it("expired NextCorner → settle_onchain with settlementSeq=0", () => {
       const cornerEvt: CornerEvent = { action: SoccerAction.Corner, participant: 1 };
       trigger.processEvent(cornerEvt, FIXTURE_ID, state);
 
@@ -388,12 +396,12 @@ describe("MarketTrigger", () => {
       round!.expiresAt = Date.now() - 1;
 
       const actions = trigger.checkTimeouts(FIXTURE_ID);
-      const settle = actions.find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.NextCorner);
+      const settle = actions.find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.NextCorner);
       expect(settle).to.exist;
-      expect((settle as any).outcome).to.equal("NoGoal");
+      expect((settle as any).settlementSeq).to.equal(0);
     });
 
-    it("expired NextYellowCard → settle_offchain with outcome=NoGoal", () => {
+    it("expired NextYellowCard → settle_onchain with settlementSeq=0", () => {
       const ycEvt: YellowCardEvent = { action: SoccerAction.YellowCard, participant: 1 };
       trigger.processEvent(ycEvt, FIXTURE_ID, state);
 
@@ -402,9 +410,9 @@ describe("MarketTrigger", () => {
       round!.expiresAt = Date.now() - 1;
 
       const actions = trigger.checkTimeouts(FIXTURE_ID);
-      const settle = actions.find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.NextYellowCard);
+      const settle = actions.find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.NextYellowCard);
       expect(settle).to.exist;
-      expect((settle as any).outcome).to.equal("NoGoal");
+      expect((settle as any).settlementSeq).to.equal(0);
     });
 
     it("expired GoalInWindow → settle_onchain(settlementSeq=0)", () => {
@@ -428,7 +436,7 @@ describe("MarketTrigger", () => {
       expect((settle as any).settlementSeq).to.equal(0);
     });
 
-    it("expired PenaltyShot → settle_offchain(No)", () => {
+    it("expired PenaltyShot → settle_onchain with settlementSeq=0", () => {
       const penalty: SoccerEvent = { action: SoccerAction.Penalty, participant: 1 } as any;
       trigger.processEvent(penalty, FIXTURE_ID, state);
 
@@ -437,9 +445,9 @@ describe("MarketTrigger", () => {
       round!.expiresAt = Date.now() - 1;
 
       const actions = trigger.checkTimeouts(FIXTURE_ID);
-      const settle = actions.find((a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.PenaltyShot);
+      const settle = actions.find((a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.PenaltyShot);
       expect(settle).to.exist;
-      expect((settle as any).outcome).to.equal("No");
+      expect((settle as any).settlementSeq).to.equal(0);
     });
 
     it("expired VARCheck → settle_offchain(No)", () => {
@@ -520,7 +528,7 @@ describe("MarketTrigger", () => {
       round!.expiresAt = Date.now() - 1;
 
       const timeoutActions = trigger.checkTimeouts(FIXTURE_ID);
-      expect(timeoutActions.find((a) => a.type === "settle_offchain" && (a as any).outcome === "NoGoal")).to.exist;
+      expect(timeoutActions.find((a) => a.type === "settle_onchain")).to.exist;
 
       const settling = trigger.getActiveRounds(FIXTURE_ID);
       expect(settling).to.have.length(0);
@@ -703,10 +711,10 @@ describe("MarketTrigger", () => {
 
       const all = flatActions();
       const penSettle = all.find(
-        (a) => a.type === "settle_offchain" && (a as any).marketType === MarketType.PenaltyShot,
+        (a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.PenaltyShot,
       );
       expect(penSettle).to.exist;
-      expect((penSettle as any).outcome).to.equal("Yes");
+      expect((penSettle as any).targetStatKey).to.equal(159);
 
       const soSettle = all.find(
         (a) => a.type === "settle_onchain" && (a as any).marketType === MarketType.PenaltyShootoutShot,

@@ -126,12 +126,37 @@ export class AnchorClientError extends Error {
   }
 }
 
+const ENUM_VARIANTS: Record<string, string> = {
+  // MarketType (mirrors anchor-client.ts MarketType union)
+  NextGoalSide: "nextGoalSide",
+  GoalInWindow: "goalInWindow",
+  NextCorner: "nextCorner",
+  CornerInWindow: "cornerInWindow",
+  NextYellowCard: "nextYellowCard",
+  YellowCardInWindow: "yellowCardInWindow",
+  RedCardInMatch: "redCardInMatch",
+  PenaltyShootoutShot: "penaltyShootoutShot",
+  PenaltyShot: "penaltyShot",
+  VARCheck: "varCheck",
+  // Comparison
+  GreaterThan: "greaterThan",
+  LessThan: "lessThan",
+  EqualTo: "equalTo",
+  // BinaryExpression
+  Add: "add",
+  Subtract: "subtract",
+  // RoundOutcome
+  None: "none",
+  Yes: "yes",
+  No: "no",
+  NoGoal: "noGoal",
+  Home: "home",
+  Away: "away",
+  Cancelled: "cancelled",
+};
+
 function camelCase(s: string): string {
-  const match = s.match(/^([A-Z]+)([A-Z][a-z])/);
-  if (match) {
-    return match[1].toLowerCase() + match[2] + s.slice(match[0].length);
-  }
-  return s.charAt(0).toLowerCase() + s.slice(1);
+  return ENUM_VARIANTS[s] ?? s.charAt(0).toLowerCase() + s.slice(1);
 }
 
 function toLeBytes64(n: number): Buffer {

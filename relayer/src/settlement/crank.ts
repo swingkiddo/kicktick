@@ -1,7 +1,8 @@
 import { EventEmitter } from "events";
 import { PublicKey } from "@solana/web3.js";
 import { AnchorClient, SettleProofArgs } from "../clients/anchor-client";
-import { ProofGatherer } from "./proof-gatherer";
+import { ProofGatherer, ProofData, ProofNotReadyError } from "./proof-gatherer";
+import { MarketType } from "../market/event-parser";
 import { TriggerAction } from "../market/triggers";
 
 export interface CrankStatus {
@@ -18,10 +19,14 @@ export interface CrankOptions {
   maxRetries?: number;
   retryDelayMs?: number;
   confirmCommitment?: string;
+  proofMaxAttempts?: number;
+  proofBackoffMs?: number[];
 }
 
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
+const DEFAULT_PROOF_MAX_ATTEMPTS = 4;
+const DEFAULT_PROOF_BACKOFF_MS = [0, 1000, 2000, 4000];
 
 function outcomeToWinner(outcome: string): number {
   switch (outcome) {
@@ -39,6 +44,8 @@ export class Crank extends EventEmitter {
   private statuses = new Map<string, CrankStatus>();
   private maxRetries: number;
   private retryDelayMs: number;
+  private proofMaxAttempts: number;
+  private proofBackoffMs: number[];
 
   constructor(
     private anchorClient: AnchorClient,
@@ -48,6 +55,8 @@ export class Crank extends EventEmitter {
     super();
     this.maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.retryDelayMs = options?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    this.proofMaxAttempts = options?.proofMaxAttempts ?? DEFAULT_PROOF_MAX_ATTEMPTS;
+    this.proofBackoffMs = options?.proofBackoffMs ?? DEFAULT_PROOF_BACKOFF_MS;
   }
 
   private statusKey(fixtureId: number, roundId: number): string {
@@ -124,6 +133,31 @@ export class Crank extends EventEmitter {
     throw lastError!;
   }
 
+  private async gatherProofWithRetry(
+    fixtureId: number,
+    seq: number,
+    statKey: number,
+    period: number,
+  ): Promise<ProofData> {
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt < this.proofMaxAttempts; attempt++) {
+      const backoff = this.proofBackoffMs[attempt] ?? 0;
+      if (backoff > 0) {
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+      try {
+        return await this.proofGatherer.gatherProof(fixtureId, seq, statKey, period);
+      } catch (err) {
+        if (err instanceof ProofNotReadyError && attempt < this.proofMaxAttempts - 1) {
+          lastError = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError ?? new Error("gatherProofWithRetry exhausted without error");
+  }
+
   private async executeOpenRound(
     fixtureId: number,
     roundId: number,
@@ -162,11 +196,15 @@ export class Crank extends EventEmitter {
       const keys = this.proofGatherer.getStatKeysForMarket(action.marketType);
       if (keys.length === 0) return;
 
-      const firstProof = await this.proofGatherer.gatherProof(
+      // When targetStatKey is provided (event-triggered), use only that key
+      const statKey = action.targetStatKey ?? keys[0].statKey;
+      const period = keys.find(k => k.statKey === statKey)?.period ?? keys[0].period;
+
+      const firstProof = await this.gatherProofWithRetry(
         fixtureId,
         action.settlementSeq,
-        keys[0].statKey,
-        keys[0].period,
+        statKey,
+        period,
       );
 
       const predicate = this.proofGatherer.buildPredicate(0);
@@ -208,8 +246,10 @@ export class Crank extends EventEmitter {
         },
       };
 
-      if (keys.length === 2) {
-        const secondProof = await this.proofGatherer.gatherProof(
+      if (action.targetStatKey) {
+        // Event-triggered settle: single stat key, no statB needed
+      } else if (keys.length === 2) {
+        const secondProof = await this.gatherProofWithRetry(
           fixtureId,
           action.settlementSeq,
           keys[1].statKey,
@@ -228,7 +268,12 @@ export class Crank extends EventEmitter {
             isRightSibling: n.is_right_sibling,
           })),
         };
-        proofArgs.op = "Add";
+
+        // PenaltyShootoutShot uses two-stat with op="Add" (single CPI call)
+        // Ternary markets (NextGoalSide/NextCorner/NextYellowCard): no op → two separate CPI calls
+        if (action.marketType === MarketType.PenaltyShootoutShot) {
+          proofArgs.op = "Add";
+        }
       }
 
       const txSig = await this.executeWithRetry(() =>
