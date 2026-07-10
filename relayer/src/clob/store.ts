@@ -85,6 +85,7 @@ export class ClobStore {
   close(): void { this.db.close(); }
 
   private migrate(): void {
+    this.db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     for (let index = 0; index < MIGRATIONS.length; index++) {
       const version = index + 1;
       if (this.db.prepare("SELECT 1 FROM schema_migrations WHERE version = ?").get(version)) continue;
