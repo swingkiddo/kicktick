@@ -13,6 +13,8 @@ export interface TxLineSseEvent {
   id?: string;
   event?: string;
   data: string;
+  /** Increments when a new underlying SSE connection is established. */
+  connectionId: number;
 }
 
 export interface TxLineClientEvents {
@@ -29,6 +31,9 @@ export class TxLineClient extends EventEmitter {
   private _reconnectAttempts: number = 0;
   private _heartbeatTimer?: ReturnType<typeof setTimeout>;
   private _stopped: boolean = false;
+  private stopRequested: boolean = false;
+  private activeIterator?: AsyncIterator<SseMessage>;
+  private connectionId: number = 0;
 
   constructor(config: Config) {
     super();
@@ -62,11 +67,20 @@ export class TxLineClient extends EventEmitter {
   }
 
   async *streamScores(): AsyncGenerator<TxLineSseEvent> {
+    this.stopRequested = false;
     yield* this._streamWithReconnect(() => this.client.streamScores());
   }
 
   async *streamOdds(): AsyncGenerator<TxLineSseEvent> {
+    this.stopRequested = false;
     yield* this._streamWithReconnect(() => this.client.streamOdds());
+  }
+
+  async stop(): Promise<void> {
+    this.stopRequested = true;
+    this._stopped = true;
+    if (this._heartbeatTimer) clearTimeout(this._heartbeatTimer);
+    await this.activeIterator?.return?.();
   }
 
   async getFixtures(competitionId?: number): Promise<FixtureRecord[]> {
@@ -99,14 +113,16 @@ export class TxLineClient extends EventEmitter {
   ): AsyncGenerator<TxLineSseEvent> {
     this._reconnectAttempts = 0;
 
-    while (true) {
+    while (!this.stopRequested) {
       this.emit("connect");
+      this.connectionId++;
 
       const sdkStream = streamFn();
       const iterator = sdkStream[Symbol.asyncIterator]();
+      this.activeIterator = iterator;
 
       try {
-        while (true) {
+        while (!this.stopRequested) {
           let result: IteratorResult<SseMessage>;
 
           try {
@@ -128,6 +144,7 @@ export class TxLineClient extends EventEmitter {
             id: msg.id,
             event: msg.event,
             data: msg.data,
+            connectionId: this.connectionId,
           };
 
           this.emit("event", event);
@@ -139,9 +156,11 @@ export class TxLineClient extends EventEmitter {
         this._stopped = true;
         if (this._heartbeatTimer) clearTimeout(this._heartbeatTimer);
         await iterator.return?.(undefined);
-        this._stopped = false;
+        if (this.activeIterator === iterator) this.activeIterator = undefined;
+        this._stopped = this.stopRequested;
       }
 
+      if (this.stopRequested) break;
       this.emit("disconnect");
 
       const delay = this._backoff();

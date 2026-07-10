@@ -5,10 +5,11 @@ import { Config } from "../config";
 import {
   SoccerEvent,
   SoccerAction,
+  GoalType,
   StatusId,
   gameStateToStatusId,
 } from "./event-parser";
-import type { FixtureRecord } from "@swingkiddo/txodds-client/dist/types";
+import type { FixtureRecord, ScoresRecord } from "@swingkiddo/txodds-client/dist/types";
 
 // ── Interfaces ──
 
@@ -25,6 +26,7 @@ export interface MatchState {
   marketCounter: number;
   participants: { home: string; away: string };
   startTime?: number;
+  stats: Record<number, number>;
 }
 
 export interface FixtureWatcherEvents {
@@ -143,9 +145,9 @@ export class FixtureWatcher extends EventEmitter {
 
     const records = scores as any[];
     const bestRecord = records.length > 0
-      ? records.reduce((best, r) => ((r?.Seq ?? 0) > (best?.Seq ?? 0) ? r : best))
+      ? records.reduce((best, r) => ((r?.seq ?? r?.Seq ?? 0) > (best?.seq ?? best?.Seq ?? 0) ? r : best))
       : null;
-    const status = bestRecord?.StatusId ?? StatusId.NotStarted;
+    const status = bestRecord?.gameState ?? bestRecord?.StatusId ?? StatusId.NotStarted;
 
     const state: MatchState = {
       fixtureId,
@@ -153,13 +155,14 @@ export class FixtureWatcher extends EventEmitter {
       matchPdaBump,
       status,
       currentPeriod: STATUS_TO_PERIOD[status] || "NS",
-      homeScore: bestRecord?.Score?.Participant1?.Total?.Goals ?? 0,
-      awayScore: bestRecord?.Score?.Participant2?.Total?.Goals ?? 0,
-      matchClockMs: bestRecord?.Clock?.Seconds != null ? bestRecord.Clock.Seconds * 1000 : 0,
-      lastEventAt: bestRecord?.Ts ? bestRecord.Ts * 1000 : Date.now(),
+      homeScore: bestRecord?.homeScore ?? bestRecord?.Score?.Participant1?.Total?.Goals ?? 0,
+      awayScore: bestRecord?.awayScore ?? bestRecord?.Score?.Participant2?.Total?.Goals ?? 0,
+      matchClockMs: bestRecord?.clock?.seconds != null ? bestRecord.clock.seconds * 1000 : bestRecord?.Clock?.Seconds != null ? bestRecord.Clock.Seconds * 1000 : 0,
+      lastEventAt: (bestRecord?.ts ?? bestRecord?.Ts) ? (bestRecord.ts ?? bestRecord.Ts) * 1000 : Date.now(),
       marketCounter: 0,
       participants,
       startTime,
+      stats: bestRecord?.stats ?? {},
     };
 
     this.matches.set(fixtureId, state);
@@ -180,6 +183,7 @@ export class FixtureWatcher extends EventEmitter {
       currentPeriod: STATUS_TO_PERIOD[status] || "NS",
       homeScore: 0, awayScore: 0, matchClockMs: 0, lastEventAt: Date.now(),
       marketCounter: 0, participants: { home, away },
+      stats: {},
     };
     this.matches.set(fixtureId, state);
     return state;
@@ -218,6 +222,54 @@ export class FixtureWatcher extends EventEmitter {
 
   getAllFixtures(): MatchState[] {
     return Array.from(this.matches.values());
+  }
+
+  /** Reconstruct triggerable score changes from ordered REST score updates. */
+  applyScoreUpdate(update: ScoresRecord): { state: MatchState; events: SoccerEvent[] } | undefined {
+    const state = this.matches.get(update.fixtureId);
+    if (!state) return undefined;
+    const events: SoccerEvent[] = [];
+    const nextStatus = Number.isInteger(update.gameState) ? update.gameState as StatusId : undefined;
+    if (nextStatus && nextStatus !== state.status) {
+      this.handleStatusChange({ action: SoccerAction.Status, statusId: nextStatus }, state);
+      events.push({ action: SoccerAction.Status, statusId: nextStatus, seq: update.seq });
+    }
+
+    for (const [participant, before, after] of [
+      [1, state.homeScore, update.homeScore],
+      [2, state.awayScore, update.awayScore],
+    ] as const) {
+      for (let count = before; count < after; count++) {
+        events.push({ action: SoccerAction.Goal, participant, goalType: GoalType.Other, seq: update.seq });
+      }
+    }
+
+    const statEvents: ReadonlyArray<[number, SoccerAction, 1 | 2]> = [
+      [7, SoccerAction.Corner, 1], [8, SoccerAction.Corner, 2],
+      [3, SoccerAction.YellowCard, 1], [4, SoccerAction.YellowCard, 2],
+      [5, SoccerAction.RedCard, 1], [6, SoccerAction.RedCard, 2],
+    ];
+    for (const [statKey, action, participant] of statEvents) {
+      const before = state.stats[statKey] ?? 0;
+      const after = update.stats[statKey] ?? before;
+      for (let count = before; count < after; count++) {
+        if (action === SoccerAction.RedCard) {
+          events.push({ action, participant, redCardType: "StraightRed", seq: update.seq });
+        } else if (action === SoccerAction.YellowCard) {
+          events.push({ action, participant, seq: update.seq });
+        } else {
+          events.push({ action, participant, seq: update.seq });
+        }
+      }
+    }
+
+    const scoreChanged = state.homeScore !== update.homeScore || state.awayScore !== update.awayScore;
+    state.homeScore = update.homeScore;
+    state.awayScore = update.awayScore;
+    state.stats = { ...update.stats };
+    state.lastEventAt = update.ts * 1000;
+    if (scoreChanged) this.emit("score_changed", state);
+    return { state, events };
   }
 
   // ── Internal event handlers ──

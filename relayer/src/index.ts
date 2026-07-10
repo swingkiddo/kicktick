@@ -14,7 +14,7 @@ import { ProofGatherer } from "./settlement/proof-gatherer";
 import { Crank, CrankStatus } from "./settlement/crank";
 import { WsServer, WsServerMessage } from "./api/ws-server";
 import { MarketTrigger, type TriggerAction } from "./market/triggers";
-import { FixtureWatcher } from "./market/fixture-watcher";
+import { FixtureWatcher, type MatchState } from "./market/fixture-watcher";
 import { parseSoccerEvent } from "./market/event-parser";
 import { normalizeSsePayload } from "./market/sse-normalize";
 import { SseLogger } from "./market/sse-logger";
@@ -293,10 +293,49 @@ async function main(): Promise<void> {
     }
   }
 
+  function broadcastMatchState(matchState: MatchState): void {
+    wsServer.broadcast({
+      type: "match_state",
+      data: {
+        fixtureId: matchState.fixtureId,
+        status: String(matchState.status),
+        homeScore: matchState.homeScore,
+        awayScore: matchState.awayScore,
+        currentPeriod: matchState.currentPeriod,
+        matchClockMs: matchState.matchClockMs,
+      },
+    });
+  }
+
+  async function replayScoresAfterReconnect(): Promise<void> {
+    const fixturesToReplay = fixtureWatcher.getAllFixtures();
+    await Promise.all(fixturesToReplay.map(async (state) => {
+      try {
+        const updates = await txlineClient.getScoresUpdates(state.fixtureId);
+        for (const update of updates.sort((a, b) => a.seq - b.seq)) {
+          if (!clobStore.advanceFixtureCursor(String(state.fixtureId), update.seq)) continue;
+          const reconciled = fixtureWatcher.applyScoreUpdate(update);
+          if (!reconciled) continue;
+          broadcastMatchState(reconciled.state);
+          for (const event of reconciled.events) {
+            marketTrigger.processEvent(event, state.fixtureId, reconciled.state);
+          }
+        }
+      } catch (error) {
+        console.warn(`Score replay failed for fixture ${state.fixtureId}:`, error instanceof Error ? error.message : error);
+      }
+    }));
+  }
+
   const sseLoop = (async () => {
     console.log("Starting SSE scores stream...");
+    let lastConnectionId = 0;
     for await (const event of txlineClient.streamScores()) {
       try {
+        if (event.connectionId !== lastConnectionId) {
+          lastConnectionId = event.connectionId;
+          await replayScoresAfterReconnect();
+        }
         if (event.event === "heartbeat") continue;
         sseLogger.write(event.data);
         const rawParsed = JSON.parse(event.data);
@@ -306,6 +345,12 @@ async function main(): Promise<void> {
         if (!rawData.fixtureId) continue;
 
         if (typeof rawParsed.CompetitionId === "number" && rawParsed.CompetitionId !== config.competitionId) continue;
+
+        const sequence = rawData.seq || rawData.id;
+        if (sequence > 0 && !clobStore.advanceFixtureCursor(String(rawData.fixtureId), sequence)) {
+          console.log(`[DUPLICATE] fixture=${rawData.fixtureId} seq=${sequence}`);
+          continue;
+        }
 
         const soccerEvent = parseSoccerEvent(rawData);
         if (!soccerEvent) {
@@ -318,17 +363,7 @@ async function main(): Promise<void> {
 
         const matchState = fixtureWatcher.processEvent(soccerEvent, rawData.fixtureId);
         if (matchState) {
-          wsServer.broadcast({
-            type: "match_state",
-            data: {
-              fixtureId: matchState.fixtureId,
-              status: String(matchState.status),
-              homeScore: matchState.homeScore,
-              awayScore: matchState.awayScore,
-              currentPeriod: matchState.currentPeriod,
-              matchClockMs: matchState.matchClockMs,
-            },
-          });
+          broadcastMatchState(matchState);
 
           wsServer.broadcast({
             type: "football_event",
@@ -398,6 +433,7 @@ async function main(): Promise<void> {
     for (const ms of fixtureWatcher.getAllFixtures()) {
       marketTrigger.stopCronWindows(ms.fixtureId);
     }
+    await txlineClient.stop();
     wsServer.stop();
     sseLogger.close();
     clobStore.close();
