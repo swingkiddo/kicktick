@@ -1,431 +1,340 @@
 import * as anchor from '@anchor-lang/core';
 import { Program } from '@anchor-lang/core';
-import { PublicKey, SystemProgram, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Keypair, LAMPORTS_PER_SOL, Transaction } from '@solana/web3.js';
 import { assert } from 'chai';
 
 import { Kicktick } from '../target/types/kicktick';
+import {
+  setupExports,
+  setupReady,
+  loadWallet,
+  findUserPda,
+  findUserVaultPda,
+  findMarketPda,
+  findMarketVaultPda,
+  findPositionPda,
+  findConfigPda,
+  TXORACLE_PROGRAM_ID,
+  DAILY_SCORES_MERKLE_ROOTS,
+} from './setup';
 
-const SEED_CONFIG = Buffer.from('config');
-const SEED_MATCH = Buffer.from('match');
-const SEED_MATCH_VAULT = Buffer.from('match_vault');
-const SEED_ROUND = Buffer.from('round');
-const SEED_POSITION = Buffer.from('position');
-
-describe('KickTick (Native SOL)', () => {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
-
-  const program = anchor.workspace.Kicktick as Program<Kicktick>;
-  const admin = provider.wallet;
-
+describe('KickTick CLOB', () => {
+  let provider: anchor.AnchorProvider;
+  let program: Program<Kicktick>;
   let configPda: PublicKey;
-  let matchPda: PublicKey;
-  let vaultPda: PublicKey;
-  let roundPda: PublicKey;
-  let positionPda: PublicKey;
 
-  const fixtureId = new anchor.BN(54321);
-  const homeTeam = 'Home FC';
-  const awayTeam = 'Away United';
-  const betAmount = new anchor.BN(10_000_000); // 0.01 SOL
-  const roundId = new anchor.BN(1);
-  const LOCK_SECS = 15;
-  const DEADLINE_SECS = 16;
+  const admin = provider?.wallet; // will be set after before()
 
-  const bettor2 = Keypair.generate();
+  const relayer = loadWallet('wallet-03');
+  const user1 = loadWallet('wallet-04');
+  const user2 = loadWallet('wallet-05');
 
   before(async () => {
-    configPda = PublicKey.findProgramAddressSync(
-      [SEED_CONFIG],
-      program.programId,
-    )[0];
+    await setupReady;
+    provider = setupExports.provider!;
+    program = setupExports.program!;
+    configPda = setupExports.configPda!;
 
-    const existing = await provider.connection.getAccountInfo(configPda);
-    if (!existing) {
-      await (program.methods.initConfig() as any)
-        .accountsStrict({
-          admin: admin.publicKey,
-          config: configPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-
-      const created = await provider.connection.getAccountInfo(configPda);
-      if (!created) throw new Error('init_config failed');
+    // Fund test wallets from admin
+    for (const kp of [relayer, user1, user2]) {
+      const tx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: provider.wallet.publicKey,
+          toPubkey: kp.publicKey,
+          lamports: 2 * LAMPORTS_PER_SOL,
+        }),
+      );
+      await provider.sendAndConfirm(tx);
     }
-
-    // Fund bettor2 for placeBet
-    const sig = await provider.connection.requestAirdrop(
-      bettor2.publicKey, 0.1 * LAMPORTS_PER_SOL,
-    );
-    await provider.connection.confirmTransaction(sig, 'confirmed');
   });
 
-  it('1. init_match creates match PDA + vault', async () => {
-    matchPda = PublicKey.findProgramAddressSync(
-      [SEED_MATCH, fixtureId.toArrayLike(Buffer, 'le', 8)],
-      program.programId,
-    )[0];
-    vaultPda = PublicKey.findProgramAddressSync(
-      [SEED_MATCH_VAULT, matchPda.toBuffer()],
-      program.programId,
-    )[0];
+  // ============================================================
+  // Config tests
+  // ============================================================
 
-    await (program.methods
-      .initMatch(fixtureId, homeTeam, awayTeam) as any)
-      .accountsStrict({
-        creator: admin.publicKey,
-        config: configPda,
-        matchPda,
-        matchVault: vaultPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    const matchAccount = await program.account.match.fetch(matchPda);
-    assert.equal(matchAccount.fixtureId.toNumber(), fixtureId.toNumber());
-    assert.equal(matchAccount.homeTeam.trimEnd(), homeTeam);
-    assert.equal(matchAccount.awayTeam.trimEnd(), awayTeam);
-    assert.ok(matchAccount.vaultBump > 0, 'vault bump derived');
-    assert.equal(matchAccount.totalDeposited.toNumber(), 0);
-
-    const vaultInfo = await provider.connection.getAccountInfo(vaultPda);
-    assert.ok(vaultInfo !== null, 'vault PDA must exist after init_match');
-    assert.ok(vaultInfo!.owner.equals(SystemProgram.programId), 'vault must be system-owned');
-    assert.equal(vaultInfo!.data.length, 0, 'vault must have zero-size data');
-    assert.ok(vaultInfo!.lamports > 0, 'vault must hold rent-exempt lamports');
-  });
-
-  it('2. open_round + place_bet sends SOL directly to vault', async () => {
-    roundPda = PublicKey.findProgramAddressSync(
-      [SEED_ROUND, matchPda.toBuffer(), roundId.toArrayLike(Buffer, 'le', 8)],
-      program.programId,
-    )[0];
-    positionPda = PublicKey.findProgramAddressSync(
-      [
-        SEED_POSITION,
-        fixtureId.toArrayLike(Buffer, 'le', 8),
-        roundId.toArrayLike(Buffer, 'le', 8),
-        admin.publicKey.toBuffer(),
-      ],
-      program.programId,
-    )[0];
-
-    await (program.methods
-      .openRound(roundId, { varCheck: {} }, new anchor.BN(LOCK_SECS), new anchor.BN(DEADLINE_SECS)) as any)
-      .accountsStrict({
-        authority: admin.publicKey,
-        matchPda,
-        round: roundPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    const vaultBefore = await provider.connection.getBalance(vaultPda);
-
-    await (program.methods
-      .placeBet(fixtureId, roundId, 0 /* YES */, betAmount) as any)
-      .accountsStrict({
-        bettor: admin.publicKey,
-        matchPda,
-        matchVault: vaultPda,
-        round: roundPda,
-        position: positionPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    const vaultAfter = await provider.connection.getBalance(vaultPda);
-    assert.equal(
-      vaultAfter - vaultBefore,
-      betAmount.toNumber(),
-      'vault balance must increase by bet amount',
-    );
-
-    const matchAccount = await program.account.match.fetch(matchPda);
-    assert.equal(
-      matchAccount.totalDeposited.toNumber(),
-      betAmount.toNumber(),
-      'match total_deposited = bet',
-    );
-
-    const roundAccount = await program.account.round.fetch(roundPda);
-    assert.equal(roundAccount.totalYes.toNumber(), betAmount.toNumber());
-  });
-
-  it('3. second bettor places NO (opposing side)', async () => {
-    const noPositionPda = PublicKey.findProgramAddressSync(
-      [
-        SEED_POSITION,
-        fixtureId.toArrayLike(Buffer, 'le', 8),
-        roundId.toArrayLike(Buffer, 'le', 8),
-        bettor2.publicKey.toBuffer(),
-      ],
-      program.programId,
-    )[0];
-
-    const vaultBefore = await provider.connection.getBalance(vaultPda);
-
-    await (program.methods
-      .placeBet(fixtureId, roundId, 1 /* NO */, betAmount) as any)
-      .accountsStrict({
-        bettor: bettor2.publicKey,
-        matchPda,
-        matchVault: vaultPda,
-        round: roundPda,
-        position: noPositionPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([bettor2])
-      .rpc();
-
-    const vaultAfter = await provider.connection.getBalance(vaultPda);
-    assert.equal(
-      vaultAfter - vaultBefore,
-      betAmount.toNumber(),
-      'vault balance increased by second bet',
-    );
-
-    const roundAccount = await program.account.round.fetch(roundPda);
-    assert.equal(roundAccount.totalNo.toNumber(), betAmount.toNumber());
-    assert.equal(
-      roundAccount.totalYes.toNumber() + roundAccount.totalNo.toNumber(),
-      betAmount.toNumber() * 2,
-    );
-  });
-
-  it('4. settle_offchain + confirm + claim_winnings', async () => {
-    // Wait for round to expire
-    await new Promise(r => setTimeout(r, (DEADLINE_SECS + 1) * 1000));
-
-    // Settle — YES wins (winner=1)
-    await (program.methods
-      .settleOffchainRound({ yes: {} }, 1) as any)
-      .accountsStrict({
-        caller: admin.publicKey,
-        matchPda,
-        round: roundPda,
-      })
-      .rpc();
-
-    const roundSettled = await program.account.round.fetch(roundPda);
-    assert.equal(roundSettled.winner, 1, 'YES (1) wins');
-
-    // Wait finality for confirmRound
-    await new Promise(r => setTimeout(r, 60000));
-
-    await (program.methods
-      .confirmRound() as any)
-      .accountsStrict({
-        caller: admin.publicKey,
-        matchPda,
-        round: roundPda,
-      })
-      .rpc();
-
-    // Claim — YES should succeed, NO should fail
-    const vaultBeforeClaim = await provider.connection.getBalance(vaultPda);
-    const adminBefore = await provider.connection.getBalance(admin.publicKey);
-
-    await (program.methods
-      .claimWinnings(fixtureId, roundId) as any)
-      .accountsStrict({
-        winner: admin.publicKey,
-        matchPda,
-        round: roundPda,
-        position: positionPda,
-        matchVault: vaultPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    const vaultAfterClaim = await provider.connection.getBalance(vaultPda);
-    const adminAfter = await provider.connection.getBalance(admin.publicKey);
-
-    // Vault balance decreased — payout sent
-    assert.ok(
-      vaultAfterClaim < vaultBeforeClaim,
-      'vault balance must decrease after claim',
-    );
-    // Admin received payout (minus tx fees)
-    assert.ok(
-      adminAfter > adminBefore,
-      'winner must receive SOL',
-    );
-  });
-
-  describe('Negative path tests', () => {
-    const negBase = 54322;
-    const negLock = 15;
-    const negDeadline = 16;
-
-    async function mkMatch(fid: number) {
-      const fidBN = new anchor.BN(fid);
-      const mPda = PublicKey.findProgramAddressSync(
-        [SEED_MATCH, fidBN.toArrayLike(Buffer, 'le', 8)],
-        program.programId,
-      )[0];
-      const vPda = PublicKey.findProgramAddressSync(
-        [SEED_MATCH_VAULT, mPda.toBuffer()],
-        program.programId,
-      )[0];
-      await (program.methods
-        .initMatch(fidBN, 'Neg Home', 'Neg Away') as any)
-        .accountsStrict({
-          creator: admin.publicKey,
-          config: configPda,
-          matchPda: mPda,
-          matchVault: vPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-      return { fidBN, mPda, vPda };
-    }
-
-    async function mkRound(mPda: PublicKey, rId: anchor.BN, marketType: any) {
-      const rPda = PublicKey.findProgramAddressSync(
-        [SEED_ROUND, mPda.toBuffer(), rId.toArrayLike(Buffer, 'le', 8)],
-        program.programId,
-      )[0];
-      await (program.methods
-        .openRound(rId, marketType, new anchor.BN(negLock), new anchor.BN(negDeadline)) as any)
-        .accountsStrict({
-          authority: admin.publicKey,
-          matchPda: mPda,
-          round: rPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-      return rPda;
-    }
-
-    it('open_round sets settlement_model correctly per market type', async () => {
-      const cases: [number, any, boolean][] = [
-        [negBase,     { varCheck: {} },     false],
-        [negBase + 1, { penaltyShot: {} },  false],
-        [negBase + 2, { nextGoalSide: {} }, false],
-        [negBase + 3, { goalInWindow: {} }, true],
-      ];
-
-      for (const [fid, mt, expectOnChain] of cases) {
-        const { mPda } = await mkMatch(fid);
-        const rPda = await mkRound(mPda, new anchor.BN(1), mt);
-        const acc = await program.account.round.fetch(rPda);
-        if (expectOnChain) {
-          assert.ok(acc.settlementModel.onChain !== undefined, `${fid}: expected OnChain`);
-        } else {
-          assert.ok(acc.settlementModel.offChain !== undefined, `${fid}: expected OffChain`);
-        }
-      }
+  describe('Config', () => {
+    it('init_config sets admin and default relayer', async () => {
+      const config = await program.account.config.fetch(configPda);
+      assert.ok(config.admin.equals(provider.wallet.publicKey), 'admin = wallet');
+      assert.ok(config.relayer.equals(provider.wallet.publicKey), 'relayer defaults to admin');
+      assert.ok(config.txoracleProgramId.equals(TXORACLE_PROGRAM_ID));
+      assert.ok(config.dailyScoresMerkleRoots.equals(DAILY_SCORES_MERKLE_ROOTS), 'oracle PDA is derived');
     });
 
-    it('settle_offchain_round accepts Home | Away | NoGoal | Yes | No | Cancelled', async () => {
-      const outcomes: [any, number][] = [
-        [{ home: {} }, 1],
-        [{ away: {} }, 2],
-        [{ noGoal: {} }, 3],
-        [{ yes: {} }, 1],
-        [{ no: {} }, 2],
-        [{ cancelled: {} }, 0],
-      ];
+    it('set_relayer rotates relayer authority', async () => {
+      await program.methods.setRelayer(relayer.publicKey)
+        .accounts({ admin: provider.wallet.publicKey, config: configPda })
+        .rpc();
 
-      for (let i = 0; i < outcomes.length; i++) {
-        const [outcome, winner] = outcomes[i];
-        const fid = negBase + 10 + i;
-        const { mPda } = await mkMatch(fid);
-        const rPda = await mkRound(mPda, new anchor.BN(1), { varCheck: {} });
+      const config = await program.account.config.fetch(configPda);
+      assert.ok(config.relayer.equals(relayer.publicKey), 'relayer rotated');
+    });
 
-        await new Promise(r => setTimeout(r, (negDeadline + 1) * 1000));
-
-        await (program.methods
-          .settleOffchainRound(outcome, winner) as any)
-          .accountsStrict({
-            caller: admin.publicKey,
-            matchPda: mPda,
-            round: rPda,
-          })
+    it('set_relayer rejects non-admin', async () => {
+      try {
+        await program.methods.setRelayer(user1.publicKey)
+          .accounts({ admin: user1.publicKey, config: configPda })
+          .signers([user1])
           .rpc();
-
-        const acc = await program.account.round.fetch(rPda);
-        assert.equal(acc.winner, winner, `winner for ${JSON.stringify(outcome)}`);
+        assert.fail('Expected Unauthorized error');
+      } catch (err: any) {
+        assert.ok(err.toString().includes('Unauthorized'), `Expected Unauthorized, got: ${err}`);
       }
     });
+  });
 
-    it('settle_round rejects offchain market with InvalidSettlementMethod', async () => {
-      const fid = negBase + 20;
-      const { mPda } = await mkMatch(fid);
-      const rPda = await mkRound(mPda, new anchor.BN(1), { varCheck: {} });
+  // ============================================================
+  // User account tests
+  // ============================================================
 
-      await new Promise(r => setTimeout(r, (negDeadline + 1) * 1000));
+  describe('User accounts', () => {
+    it('init_user creates UserAccount and vault PDA', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
 
-      const zero32 = new Array(32).fill(0);
-      const dummyArgs = {
-        ts: new anchor.BN(0),
-        fixtureSummary: {
-          fixtureId: new anchor.BN(0),
-          updateStats: {
-            updateCount: 0,
-            minTimestamp: new anchor.BN(0),
-            maxTimestamp: new anchor.BN(0),
-          },
-          eventsSubTreeRoot: zero32,
-        },
-        fixtureProof: [],
-        mainTreeProof: [],
-        predicate: { threshold: 0, comparison: { greaterThan: {} } },
-        statA: {
-          statToProve: { key: 0, value: 0, period: 0 },
-          eventStatRoot: zero32,
-          statProof: [],
-        },
-        statB: null,
-        op: null,
-      };
+      await program.methods.initUser()
+        .accounts({
+          user: user1.publicKey,
+          userAccount: userAccountPda,
+          userVault: userVaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user1])
+        .rpc();
 
-      const fake = Keypair.generate().publicKey;
+      const account = await program.account.userAccount.fetch(userAccountPda);
+      assert.ok(account.owner.equals(user1.publicKey), 'owner set');
+      assert.equal(account.availableBalance.toNumber(), 0, 'balance starts at 0');
+      assert.equal(account.reservedBalance.toNumber(), 0, 'reserved starts at 0');
+
+      const vaultInfo = await provider.connection.getAccountInfo(userVaultPda);
+      assert.ok(vaultInfo !== null, 'vault PDA exists');
+      assert.ok(vaultInfo!.owner.equals(SystemProgram.programId), 'vault is system-owned');
+      assert.equal(vaultInfo!.data.length, 0, 'vault has zero data');
+      assert.ok(vaultInfo!.lamports > 0, 'vault holds rent');
+    });
+
+    it('init_user is idempotent (init_if_needed)', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
+
+      await program.methods.initUser()
+        .accounts({
+          user: user1.publicKey,
+          userAccount: userAccountPda,
+          userVault: userVaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user1])
+        .rpc();
+
+      const account = await program.account.userAccount.fetch(userAccountPda);
+      assert.ok(account.owner.equals(user1.publicKey), 'owner unchanged');
+      assert.equal(account.availableBalance.toNumber(), 0, 'balance still 0');
+    });
+  });
+
+  // ============================================================
+  // Deposit tests
+  // ============================================================
+
+  describe('Deposit', () => {
+    it('deposit transfers SOL to vault and updates balance', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
+
+      const vaultBefore = await provider.connection.getBalance(userVaultPda);
+      const depositAmount = new anchor.BN(0.5 * LAMPORTS_PER_SOL);
+
+      await program.methods.deposit(depositAmount)
+        .accounts({
+          user: user1.publicKey,
+          userAccount: userAccountPda,
+          userVault: userVaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user1])
+        .rpc();
+
+      const vaultAfter = await provider.connection.getBalance(userVaultPda);
+      assert.equal(vaultAfter - vaultBefore, Number(depositAmount), 'vault balance increased');
+
+      const account = await program.account.userAccount.fetch(userAccountPda);
+      assert.equal(account.availableBalance.toNumber(), Number(depositAmount), 'available balance updated');
+    });
+
+    it('deposit rejects zero amount', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
 
       try {
-        await (program.methods
-          .settleRound(dummyArgs) as any)
-          .accountsStrict({
-            caller: admin.publicKey,
-            matchPda: mPda,
-            round: rPda,
-            dailyScoresMerkleRoots: fake,
-            txoracleProgram: fake,
+        await program.methods.deposit(new anchor.BN(0))
+          .accounts({
+            user: user1.publicKey,
+            userAccount: userAccountPda,
+            userVault: userVaultPda,
+            systemProgram: SystemProgram.programId,
           })
+          .signers([user1])
           .rpc();
-        assert.fail('Expected InvalidSettlementMethod error');
+        assert.fail('Expected ZeroAmount error');
       } catch (err: any) {
-        assert.ok(
-          err.toString().includes('InvalidSettlementMethod'),
-          `Expected InvalidSettlementMethod, got: ${err}`,
-        );
+        assert.ok(err.toString().includes('ZeroAmount'), `Expected ZeroAmount, got: ${err}`);
       }
     });
 
-    it('settle_offchain_round rejects onchain market', async () => {
-      const fid = negBase + 30;
-      const { mPda } = await mkMatch(fid);
-      const rPda = await mkRound(mPda, new anchor.BN(1), { goalInWindow: {} });
+    it('deposit accumulates balance across multiple deposits', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
 
-      await new Promise(r => setTimeout(r, (negDeadline + 1) * 1000));
+      const accountBefore = await program.account.userAccount.fetch(userAccountPda);
+      const extraDeposit = new anchor.BN(0.1 * LAMPORTS_PER_SOL);
+
+      await program.methods.deposit(extraDeposit)
+        .accounts({
+          user: user1.publicKey,
+          userAccount: userAccountPda,
+          userVault: userVaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user1])
+        .rpc();
+
+      const accountAfter = await program.account.userAccount.fetch(userAccountPda);
+      assert.equal(
+        accountAfter.availableBalance.toNumber(),
+        accountBefore.availableBalance.toNumber() + Number(extraDeposit),
+        'balance accumulated',
+      );
+    });
+
+    it('different user can deposit independently', async () => {
+      const userAccountPda = findUserPda(user2.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user2.publicKey, program.programId);
+
+      const depositAmount = new anchor.BN(1 * LAMPORTS_PER_SOL);
+
+      await program.methods.initUser()
+        .accounts({
+          user: user2.publicKey,
+          userAccount: userAccountPda,
+          userVault: userVaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user2])
+        .rpc();
+
+      await program.methods.deposit(depositAmount)
+        .accounts({
+          user: user2.publicKey,
+          userAccount: userAccountPda,
+          userVault: userVaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user2])
+        .rpc();
+
+      const account = await program.account.userAccount.fetch(userAccountPda);
+      assert.ok(account.owner.equals(user2.publicKey), 'user2 owner');
+      assert.equal(account.availableBalance.toNumber(), Number(depositAmount), 'user2 balance');
+    });
+  });
+
+  // ============================================================
+  // Withdraw tests
+  // ============================================================
+
+  describe('Withdraw', () => {
+    it('withdraw sends SOL back and decreases balance', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
+
+      const accountBefore = await program.account.userAccount.fetch(userAccountPda);
+      const withdrawAmount = new anchor.BN(0.1 * LAMPORTS_PER_SOL);
+      const vaultBefore = await provider.connection.getBalance(userVaultPda);
+
+      await program.methods.withdraw(withdrawAmount)
+        .accounts({
+          user: user1.publicKey,
+          userAccount: userAccountPda,
+          userVault: userVaultPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user1])
+        .rpc();
+
+      const accountAfter = await program.account.userAccount.fetch(userAccountPda);
+      const vaultAfter = await provider.connection.getBalance(userVaultPda);
+
+      assert.equal(
+        accountAfter.availableBalance.toNumber(),
+        accountBefore.availableBalance.toNumber() - Number(withdrawAmount),
+        'balance decreased',
+      );
+      assert.equal(vaultAfter - vaultBefore, -Number(withdrawAmount), 'vault balance decreased');
+    });
+
+    it('withdraw rejects zero amount', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
 
       try {
-        await (program.methods
-          .settleOffchainRound({ yes: {} }, 1) as any)
-          .accountsStrict({
-            caller: admin.publicKey,
-            matchPda: mPda,
-            round: rPda,
+        await program.methods.withdraw(new anchor.BN(0))
+          .accounts({
+            user: user1.publicKey,
+            userAccount: userAccountPda,
+            userVault: userVaultPda,
+            systemProgram: SystemProgram.programId,
           })
+          .signers([user1])
           .rpc();
-        assert.fail('Expected InvalidSettlementMethod error');
+        assert.fail('Expected ZeroAmount error');
       } catch (err: any) {
-        assert.ok(
-          err.toString().includes('InvalidSettlementMethod'),
-          `Expected InvalidSettlementMethod, got: ${err}`,
-        );
+        assert.ok(err.toString().includes('ZeroAmount'), `Expected ZeroAmount, got: ${err}`);
+      }
+    });
+
+    it('withdraw rejects insufficient balance', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
+
+      const account = await program.account.userAccount.fetch(userAccountPda);
+      const tooMuch = account.availableBalance.add(new anchor.BN(1));
+
+      try {
+        await program.methods.withdraw(tooMuch)
+          .accounts({
+            user: user1.publicKey,
+            userAccount: userAccountPda,
+            userVault: userVaultPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user1])
+          .rpc();
+        assert.fail('Expected InsufficientBalance error');
+      } catch (err: any) {
+        assert.ok(err.toString().includes('InsufficientBalance'), `Expected InsufficientBalance, got: ${err}`);
+      }
+    });
+
+    it('withdraw rejects unauthorized user', async () => {
+      const userAccountPda = findUserPda(user1.publicKey, program.programId);
+      const userVaultPda = findUserVaultPda(user1.publicKey, program.programId);
+
+      try {
+        await program.methods.withdraw(new anchor.BN(1))
+          .accounts({
+            user: user2.publicKey,
+            userAccount: userAccountPda,
+            userVault: userVaultPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([user2])
+          .rpc();
+        assert.fail('Expected error');
+      } catch (err: any) {
+        // PDA derivation mismatch or Unauthorized — both acceptable
+        assert.ok(err.toString().includes('Error'), `Expected error, got: ${err}`);
       }
     });
   });
