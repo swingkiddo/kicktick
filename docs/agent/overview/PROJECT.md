@@ -38,7 +38,7 @@ Users bet on real-time soccer events (next goal, next corner, cards, penalties) 
 - **Native SOL** — no SPL tokens for betting
 - **CPI settlement** — `settle_round` calls `txoracle::validate_stat` on-chain
 - **Off-chain settlement** — `settle_offchain_round` for PenaltyShot, VARCheck (relayer sets outcome)
-- **Sub-minute markets** — 15s lock, 60s finality delay, 15-300s duration range
+- **Sub-minute markets** — 15s lock, 15-300s duration range
 - **Event-driven** — SSE events from TxLINE trigger market creation and settlement
 
 ## Current Status

@@ -28,18 +28,19 @@ tags: [data-flow, SSE, CPI, WebSocket]
                                     │
                                     ▼
 ┌───────────────────────────────────────────────────────────┐
-│  RELAYER (Node/TS crank — no DB, no REST API)              │
+│  RELAYER (Node/TS crank + durable SQLite CLOB)             │
 │                                                             │
 │  txline-auth.ts ──► txodds-client SDK ──► JWT + API token  │
 │                                                             │
+│  Wallet WebSocket ──► signed orders ──► SQLite CLOB         │
 │  SSE scores stream ──► fixture-watcher (StatusId 1-19)     │
 │       │                                                     │
 │       ▼                                                     │
 │  market-trigger.ts (rules engine)                           │
 │    • Event-triggered: goal→NextGoalSide, corner→NextCorner  │
 │    • Cron: every 5min→GoalInWindow                          │
-│    • Shootout mode: PE status→sequential rounds             │
-│    • Timeouts: deadline→settle(NO)                          │
+│    • Shootout mode: PE status→sequential CLOB markets       │
+│    • Timeouts: deadline→drain fills, lock, resolve, confirm │
 │       │                                                     │
 │       ├──► proof-gatherer (GET /stat-validation)            │
 │       │       │                                             │
@@ -54,18 +55,14 @@ tags: [data-flow, SSE, CPI, WebSocket]
 │ Solana Devnet        │       │ Frontend (Next.js)    │
 │                      │       │                       │
 │ kicktick program     │       │ Header (wallet)       │
-│   init_config        │       │ MarketCard (bet UI)   │
-│   init_match         │       │ CreateMarketModal     │
-│   open_round         │       │ LiveOddsFeed (demo)   │
-│   place_bet          │       │                       │
-│   settle_round       │       │ Wallet: Phantom/Solflare│
-│   settle_offchain_round│     │                       │
-│   confirm_round      │       │ Currently: demo data  │
-│   claim_winnings     │       │ No on-chain integration│
-│   cancel_round       │       │ yet                   │
-│   challenge_equivocation│   │                       │
-│ txoracle program     │       │ No on-chain integration│
-│   validate_stat (CPI)│       │ yet                   │
+│   init_config        │       │ CLOB market board     │
+│   init_market        │       │ CreateMarketModal     │
+│   lock_market        │       │ Live orderbook        │
+│   resolve_market_*   │       │                       │
+│   confirm_market     │       │ Wallet: Phantom/Solflare│
+│   claim / withdraw   │       │                       │
+│ txoracle program     │       │ CLOB data, not demo   │
+│   validate_stat (CPI)│       │                       │
 └──────────────────────┘       └──────────────────────┘
 ```
 
@@ -76,8 +73,8 @@ tags: [data-flow, SSE, CPI, WebSocket]
 3. **Event Parse:** SSE events trigger market rules (goal → NextGoalSide, corner → NextCorner)
 4. **Proof Fetch:** Relayer fetches Merkle proof from `/api/scores/stat-validation`
 5. **Crank:** Relayer builds Solana transaction, signs with keypair, sends to devnet
-6. **CPI:** `settle_round` instruction calls `txoracle::validate_stat` with proof accounts
-7. **WebSocket:** Relayer pushes round status updates to frontend
+6. **CPI:** `resolve_market_with_proof` instruction calls `txoracle::validate_stat` with proof accounts
+7. **WebSocket:** Relayer pushes market status updates to frontend
 8. **Frontend:** User sees live market state, places bets via wallet
 
 ## SSE Event Types (TxLINE Soccer Feed)

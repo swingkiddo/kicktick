@@ -34,7 +34,7 @@ tags: [instructions, CPI, settlement, accounts]
 - `config.admin = admin.key()`
 - `config.txoracle_program_id = TXORACLE_PROGRAM_ID`
 - `config.daily_scores_merkle_roots = ...`
-- `config.finality_delay = 60`
+- `config.finality_delay = 0`
 - `config.min_liquidity = 0.01 SOL`
 - `config.bump`
 
@@ -151,13 +151,12 @@ tags: [instructions, CPI, settlement, accounts]
 
 ## 7. `confirm_round`
 
-**Purpose:** Finalize settlement after `FINALITY_DELAY_SECONDS` (60s).
+**Purpose:** Finalize settlement (no delay, callable immediately).
 
 **Rust signature:** `pub fn confirm_round(ctx: Context<ConfirmRound>) -> Result<()>`
 
 **Validation:**
 - `round.status == ResolvedPending`
-- `now >= round.settle_at + FINALITY_DELAY_SECONDS`
 
 **State changes:**
 - `round.status = Settled`, `round.claimed = true`

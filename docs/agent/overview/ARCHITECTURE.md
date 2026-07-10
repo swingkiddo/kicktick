@@ -32,18 +32,19 @@ tags: [architecture, data-flow, components]
                                     │
                                     ▼
 ┌───────────────────────────────────────────────────────────┐
-│  RELAYER (Node/TS crank — no DB, no REST API)              │
+│  RELAYER (Node/TS crank + durable SQLite CLOB)             │
 │                                                             │
 │  txline-auth.ts ──► txodds-client SDK ──► JWT + API token  │
 │                                                             │
+│  Wallet WebSocket ──► signed orders ──► SQLite CLOB         │
 │  SSE scores stream ──► fixture-watcher (StatusId 1-19)     │
 │       │                                                     │
 │       ▼                                                     │
 │  market-trigger.ts (rules engine)                           │
 │    • Event-triggered: goal→NextGoalSide, corner→NextCorner  │
 │    • Cron: every 5min→GoalInWindow                          │
-│    • Shootout mode: PE status→sequential rounds             │
-│    • Timeouts: deadline→settle(NO)                          │
+│    • Shootout mode: PE status→sequential CLOB markets       │
+│    • Timeouts: deadline→drain fills, lock, resolve, confirm │
 │       │                                                     │
 │       ├──► proof-gatherer (GET /stat-validation)            │
 │       │       │                                             │
@@ -58,18 +59,14 @@ tags: [architecture, data-flow, components]
 │ Solana Devnet        │       │ Frontend (Next.js)    │
 │                      │       │                       │
 │ kicktick program     │       │ Header (wallet)       │
-│   init_config        │       │ MarketCard (bet UI)   │
-│   init_match         │       │ CreateMarketModal     │
-│   open_round         │       │ LiveOddsFeed (demo)   │
-│   place_bet          │       │                       │
-│   settle_round       │       │ Wallet: Phantom/Solflare│
-│   settle_offchain_round│     │                       │
-│   confirm_round      │       │ Currently: demo data  │
-│   claim_winnings     │       │ No on-chain integration│
-│   cancel_round       │       │ yet                   │
-│   challenge_equivocation│   │                       │
-│ txoracle program     │       │ No on-chain integration│
-│   validate_stat (CPI)│       │ yet                   │
+│   init_config        │       │ CLOB market board     │
+│   init_market        │       │ CreateMarketModal     │
+│   lock_market        │       │ Live orderbook        │
+│   resolve_market_*   │       │                       │
+│   confirm_market     │       │ Wallet: Phantom/Solflare│
+│   claim / withdraw   │       │                       │
+│ txoracle program     │       │ CLOB data, not demo   │
+│   validate_stat (CPI)│       │                       │
 └──────────────────────┘       └──────────────────────┘
 ```
 
@@ -78,20 +75,20 @@ tags: [architecture, data-flow, components]
 ## Component Responsibilities
 
 ### Anchor Program (trustless, on-chain)
-- Match/Round lifecycle (Open → Locked → Settled/Cancelled/Voided)
-- Native SOL custody in MatchVault (system-owned PDA per match)
-- Position tracking per user per round
-- Settlement via CPI txoracle::validate_stat or off-chain relayer
-- Instructions: init_config, init_match, open_round, place_bet, settle_round, settle_offchain_round, confirm_round, claim_winnings, cancel_round, challenge_equivocation, fund_sponsor, sponsor_round
-- **Current:** Phase 1 — modular, native SOL, Match/Round/Position/SponsorVault
+- Market lifecycle (Open → Locked → ResolvedPending → Resolved/Voided)
+- Native SOL custody in MarketVault (system-owned PDA per market)
+- Position tracking per user per market
+- Settlement via CPI `txoracle::validate_stat` or off-chain relayer
+- Instructions: `init_config`, `init_market`, `init_user`, `deposit`, `withdraw`, `confirm_market`, `resolve_market_with_proof`, `resolve_market_offchain`, `close_market_vault`, `claim`, `cleanup_position`, `set_relayer`
+- **Current:** CLOB-native market model with SQLite-backed relayer state
 
 ### Relayer (off-chain crank, trusted for MVP)
-- No database, no user sessions, no REST API
+- SQLite-backed CLOB order, fill, and market persistence with wallet-authenticated WebSocket sessions; no REST trading API
 - SSE consumer: parses live match actions (goal, corner, card, VAR)
-- Market trigger rules: opens/closes rounds based on match events
+- Market trigger rules: opens, locks, resolves, and confirms CLOB markets based on match events
 - Proof gatherer: fetches Merkle proofs from TxLINE REST
 - Crank: builds and sends Solana transactions
-- WebSocket: pushes round statuses to frontend
+- WebSocket: pushes market and orderbook statuses to frontend
 
 ### Frontend (Next.js, currently demo-only)
 - Wallet connection (Phantom, Solflare)

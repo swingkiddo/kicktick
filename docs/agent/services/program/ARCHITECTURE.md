@@ -43,7 +43,7 @@ Match_ PDA
 ├── away_team: String
 ├── competition_id: i32
 ├── vault_bump: u8
-├── round_counter: u64
+├── market_seq_counter: u64
 ├── total_deposited: u64
 ├── total_sponsored: u64
 └── created_at: i64
@@ -53,19 +53,18 @@ One per fixture. Tracks match lifecycle and aggregate totals.
 
 ---
 
-## Round PDA
+## Market PDA
 
-**Seeds:** `["round", match_pubkey, round_id (u64 LE)]`
+**Seeds:** `["market", fixture_id (i64 LE), market_type (u8), market_seq (u64 LE)]`
 
 ```
-Round PDA
-├── match_pda: Pubkey
-├── round_id: u64
+Market PDA
+├── fixture_id: i64
 ├── market_type: MarketType
-├── params: RoundParams (lock_seconds, deadline_seconds)
-├── settlement_model: OnChain/OffChain
-├── status: RoundStatus (Open/Locked/ResolvedPending/Settled/Voided/Cancelled)
-├── outcome: RoundOutcome
+├── market_seq: u64
+├── params: MarketParams (participant, period, baseline_a, baseline_b)
+├── status: MarketStatus (Open/Locked/ResolvedPending/Resolved/Voided)
+├── outcome: MarketOutcome
 ├── total_yes: u64
 ├── total_no: u64
 ├── total_abstain: u64
@@ -75,25 +74,25 @@ Round PDA
 └── claimed: bool
 ```
 
-One per market round per match. Core state machine for betting lifecycle.
+One per tradable market. Core state machine for CLOB lifecycle and final resolution.
 
 ---
 
 ## Position PDA
 
-**Seeds:** `["position", fixture_id (i64 LE), round_id (u64 LE), owner]`
+**Seeds:** `["position", market_pubkey, owner]`
 
 ```
 Position PDA
 ├── owner: Pubkey
 ├── fixture_id: i64
-├── round_id: u64
+├── market: Pubkey
 ├── side: u8 (0=YES, 1=NO, 2=abstain)
 ├── amount: u64
 └── claimed: bool
 ```
 
-One per bettor per round. Tracks individual bet and claim status.
+One per bettor per market. Tracks individual position and claim status.
 
 ---
 
@@ -112,12 +111,12 @@ Global sponsor liquidity pool. One per program.
 
 ---
 
-## MatchVault
+## MarketVault
 
-**Seeds:** `["match_vault", match_pubkey]`
+**Seeds:** `["market_vault", market_pubkey]`
 **Type:** System-owned account (no data)
 
-Holds lamports for match betting pool. No structured data — pure SOL custody.
+Holds lamports for market collateral and complete-set funds. No structured data.
 
 ---
 
@@ -125,9 +124,9 @@ Holds lamports for match betting pool. No structured data — pure SOL custody.
 
 | PDA | Seeds | Type | Purpose |
 |---------|-------|------|---------|
-| Config | `["config"]` | Anchor | Admin, oracle program id, settings |
-| Match_ | `["match", fixture_id]` | Anchor | Match lifecycle, vault_bump |
-| Round | `["round", match_pubkey, round_id]` | Anchor | Market round state |
-| Position | `["position", fixture_id, round_id, owner]` | Anchor | User position per round |
+| Config | `["config"]` | Anchor | Admin, oracle program id, relayer |
+| Match_ | `["match", fixture_id]` | Anchor | Match lifecycle, fixture metadata |
+| Market | `["market", fixture_id, market_type, market_seq]` | Anchor | Tradable market state |
+| Position | `["position", market, owner]` | Anchor | User position per market |
 | SponsorVault | `["sponsor_vault"]` | Anchor | Global sponsor liquidity |
-| MatchVault | `["match_vault", match_pubkey]` | System (no data) | SOL pool, holds lamports |
+| MarketVault | `["market_vault", market]` | System (no data) | SOL pool, holds market collateral |

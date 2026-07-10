@@ -21,23 +21,28 @@ tags: [architecture, data-flow, modules]
 ```
 index.ts (main loop)
   │
-  ├── config.ts  ───── env for all modules
+  ├── config.ts                 ── env/config bootstrap
+  ├── clob/store.ts             ── SQLite markets, orders, fills, nonces
+  ├── clob/matching-engine.ts   ── price-time matching
+  ├── clob/settlement.ts        ── serialized fill submission + recovery
+  ├── clob/lifecycle.ts         ── open / freeze / lock / resolve / confirm
+  ├── clob/ws-api.ts            ── wallet-authenticated WebSocket API
   │
-  ├── txline-client.ts  ───── SSE stream (scores + odds)
+  ├── txline-client.ts          ── SSE stream (scores + odds)
   │     │
-  │     ├── event-parser.ts  ── raw SSE → typed FootballEvent
+  │     ├── event-parser.ts     ── raw SSE → typed FootballEvent
   │     │     │
   │     │     ├── fixture-watcher.ts  ── match state tracking
   │     │     │     │
-  │     │     │     └── market-trigger/triggers.ts  ── rules engine
+  │     │     │     └── market-trigger/triggers.ts  ── market rules engine
   │     │     │           │
-  │     │     │           ├── proof-gatherer.ts  ── Merkle proof fetch
+  │     │     │           ├── proof-gatherer.ts     ── Merkle proof fetch
   │     │     │           │     │
-  │     │     │           │     └── crank.ts  ── tx builder + sender
+  │     │     │           │     └── crank.ts        ── tx builder + sender
   │     │     │           │           │
-  │     │     │           │           └── anchor-client.ts  ── Solana RPC
+  │     │     │           │           └── anchor-client.ts ── Solana RPC
   │     │     │           │
-  │     │     │           └── ws-server.ts  ── push to frontend
+  │     │     │           └── ws-server.ts         ── push to frontend
   │     │     │
   │     │     └── (events also flow to ws-server for broadcast)
 ```
@@ -91,27 +96,27 @@ fixture-watcher.processEvent(event, fixtureId)
   │
   ▼
 market-trigger.processEvent(event, fixtureId, matchState)
-  ├── goal → settle NextGoalSide + open new
-  ├── corner → settle NextCorner + open new
-  ├── yellow_card → settle NextYellowCard + open new
-  ├── red_card → settle RedCardInMatch
-  ├── penalty → open PenaltyShot
-  ├── penalty_outcome → settle PenaltyShot + shootout
-  ├── var → open VARCheck
-  ├── var_end → settle VARCheck
-  ├── status (FirstHalf) → open NextGoalSide + RedCardInMatch
-  ├── status (PenaltyShootout) → enter shootout mode
-  ├── status (FT/FET/FPE) → match end cleanup
-  └── emit TriggerAction[]
-  │
+    ├── goal → settle NextGoalSide + open new
+    ├── corner → settle NextCorner + open new
+    ├── yellow_card → settle NextYellowCard + open new
+    ├── red_card → settle RedCardInMatch
+    ├── penalty → open PenaltyShot
+    ├── penalty_outcome → settle PenaltyShot + shootout
+    ├── var → open VARCheck
+    ├── var_end → settle VARCheck
+    ├── status (FirstHalf) → open NextGoalSide + RedCardInMatch
+    ├── status (PenaltyShootout) → enter shootout mode
+    ├── status (FT/FET/FPE) → match end cleanup
+    └── emit TriggerAction[]
+      │
   ├─► proof-gatherer.gatherProof(fixtureId, seq, statKey, period)
   │     └── GET /stat-validation → StatValidationResult
   │
-  └─► crank.executeActions(actions)
-        ├── open_round → anchor.openRound()
-        ├── settle_onchain → anchor.settleRound()
-        ├── settle_offchain → anchor.settleOffchainRound()
-        └── confirm_round → anchor.confirmRound()
+  └─► executeTriggerActions(actions)
+        ├── open_round → CLOB market init + lifecycle.open()
+        ├── settle_onchain → proof settlement queue + resolve_market_with_proof()
+        ├── settle_offchain → resolve_market_offchain()
+        └── confirm_round → confirm_market() / lifecycle state advance
   │
   ▼
 ws-server.broadcastToMatch(fixtureId, msg)
@@ -136,7 +141,7 @@ TxLINE SSE
 | Decision | Rationale |
 |----------|-----------|
 | EventEmitter-based | Node.js native pattern, multiple consumers per event |
-| No database | All state on-chain (Solana) or in memory (relayer) |
+| Durable state | SQLite persists CLOB markets, signed orders, fills, and nonce uniqueness; Solana remains authoritative for collateral and positions. |
 | Sequential action execution | Avoid nonce conflicts, simplify retry |
 | Exponential backoff | Don't hammer TxLINE on reconnect |
 | 5s timeout poll | Balance responsiveness vs CPU |

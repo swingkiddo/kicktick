@@ -37,7 +37,7 @@ tags: [structure, files, tree]
 ### Root config
 | Path | Purpose |
 |------|---------|
-| `Anchor.toml` | Devnet cluster, program ID `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` |
+| `Anchor.toml` | Devnet cluster, program ID `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` |
 | `Cargo.toml` | Workspace root — Anchor 1.0.0, borsh |
 | `Cargo.lock` | Dependency lock |
 | `rust-toolchain.toml` | Rust 1.96.0 |
@@ -52,7 +52,7 @@ tags: [structure, files, tree]
 | `src/instructions/` | 10 files | Instruction handlers + mod.rs |
 
 #### PDAs
-- `Config` — admin, txoracle id, finality delay, min liquidity
+- `Config` — admin, txoracle id, min liquidity
 - `Match_` — fixture_id, teams, vault_bump, round_counter, totals
 - `Round` — market_type, params, status, outcome, totals, winner
 - `Position` — owner, fixture_id, round_id, side, amount, claimed
@@ -66,7 +66,7 @@ tags: [structure, files, tree]
 4. `place_bet` — SOL bet on round side
 5. `settle_round` — on-chain CPI settlement
 6. `settle_offchain_round` — relayer sets outcome
-7. `confirm_round` — finalize after finality delay
+7. `confirm_round` — finalize settlement immediately
 8. `claim_winnings` / `refund_bet` — payout or refund
 9. `cancel_round` — void open round
 10. `challenge_equivocation` — void settled round

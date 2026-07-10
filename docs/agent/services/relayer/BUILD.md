@@ -34,7 +34,7 @@ npm run start
 ### Prerequisites
 
 - Node.js 20+
-- Solana CLI keypair at `~/.config/solana/id.json` (or `SOLANA_KEYPAIR_PATH`)
+- Solana CLI keypair at `~/.config/solana/id.json` (or `SOLANA_KEYPAIR_PATH`); `SOLANA_PRIVATE_KEY` may also contain the hex secret key.
 - TxLINE JWT + API token (see `STREAMS.md`)
 
 ---
@@ -49,7 +49,7 @@ TXLINE_API_TOKEN=<token_from_activation>
 TXLINE_API_HOST=https://txline-dev.txodds.com
 SOLANA_RPC_URL=https://api.devnet.solana.com
 SOLANA_KEYPAIR_PATH=~/.config/solana/id.json
-KICKTICK_PROGRAM_ID=DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ
+KICKTICK_PROGRAM_ID=HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg
 TXORACLE_PROGRAM_ID=6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J
 USDT_MINT=ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh
 TXL_MINT=4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG
@@ -121,7 +121,7 @@ Relayer outputs structured console logs:
 ╚══════════════════════════════════════════╝
   Solana RPC:      https://api.devnet.solana.com
   Keypair:         ~/.config/solana/id.json
-  KickTick PID:    DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ
+  KickTick PID:    HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg
   WS Port:         8080
 ```
 

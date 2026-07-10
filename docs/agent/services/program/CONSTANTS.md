@@ -21,7 +21,7 @@ tags: [constants, seeds, enums, errors, StatKey]
 
 | Component | Devnet | Mainnet |
 |-----------|--------|---------|
-| **KickTick** | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` | TBD |
+| **KickTick** | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | TBD |
 | **TxOracle** | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
 
 Defined in: `kicktick/programs/kicktick/src/constants.rs:4`

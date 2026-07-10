@@ -14,58 +14,62 @@ tags: [settlement, proof, crank, CPI, transaction]
 
 # Proof Gathering & Settlement Crank
 
-## On-Chain Settlement Flow
+This document covers market resolution after trading has already happened. The trade path itself is described in `CLOB.md` and uses the fill queue in `src/clob/settlement.ts`.
+
+## 1) CLOB fill settlement
 
 ```
-market-trigger emits settle_onchain action
+matching-engine emits MATCHED fill
   │
   ▼
-crank.executeSettleOnchain(fixtureId, roundId, marketType, settlementSeq)
+FillSettlementQueue.submit(fill)
+  │
+  ├── serialize per market
+  ├── anchor-client.settleClobFill(fill)
+  │     └── direct fills settle buyer/seller positions
+  ├── anchor-client.settleCompleteSetFill(fill, owners)
+  │     └── complete-set fills settle 2-way or 3-way outcomes
+  └── confirmFill / markFillSubmitted
+```
+
+When a relayer restarts, it reloads `MATCHED` and `SUBMITTED` fills from SQLite, compares them to on-chain `fillSequence`, and either confirms the fill or retries the queue.
+
+## 2) Market resolution
+
+```
+market-trigger emits settle_onchain or settle_offchain
+  │
+  ▼
+crank.executeTriggerActions([...])
   │
   ├── proof-gatherer.getStatKeysForMarket(marketType)
-  │     returns statKey(s) needed
+  │     returns the stat key(s) needed for the market
   │
   ├── proof-gatherer.gatherProof(fixtureId, seq, statKey, period)
   │     └── txline-client.getStatValidation(fixtureId, seq, statKey)
   │           └── GET /stat-validation → StatValidationResult
   │
-  ├── proof-gatherer.buildPredicate(baseline, comparison)
+  ├── assemble proof args and predicate
   │
-  ├── assemble SettleProofArgs from proof data
+  ├── anchor-client.resolveMarketWithProof(args)
+  │     └── Solana tx: resolve_market_with_proof
+  │           ├── CPI: txoracle::validate_stat
+  │           └── CU limit: 1,400,000
   │
-  └── anchor-client.settleRound(roundId, matchPda, proofArgs)
-        └── Solana tx: settle_round instruction
-              ├── CPI: txoracle::validate_stat
-              └── CU limit: 1,400,000
+  └── anchor-client.resolveMarketOffchain(winner)
+        └── Solana tx: resolve_market_offchain
 ```
 
-### Binary Markets (1 statKey)
+### Binary markets
 
-- `GoalInWindow`, `CornerInWindow`, `YellowCardInWindow`, `RedCardInMatch`
-- Single proof call, predicate = `value > 0`
+`GoalInWindow`, `CornerInWindow`, `YellowCardInWindow`, and `RedCardInMatch` resolve from one proof path and a threshold check (`value > 0`).
 
-### Ternary Markets (2 statKeys)
+### Ternary markets
 
-- `NextGoalSide`, `NextCorner`, `NextYellowCard`, `PenaltyShootoutShot`
-- Two proof calls (home + away participant stats)
-- Combined with `op: Add` → `statA + statB > 0` determines which side
+`NextGoalSide`, `NextCorner`, `NextYellowCard`, and `PenaltyShootoutShot` resolve from two participant proof paths.
+The relayer combines the two paths with `op: Add` so `statA + statB > 0` determines the winner.
 
----
-
-## Off-Chain Settlement
-
-For `PenaltyShot` and `VARCheck` — relayer sets outcome directly, no CPI.
-
-```
-market-trigger emits settle_offchain action
-  │
-  ▼
-crank.executeSettleOffchain(fixtureId, roundId, outcome)
-  └── anchor-client.settleOffchainRound(roundId, matchPda, outcome, winner)
-        └── Solana tx: settle_offchain_round instruction
-```
-
-### Outcome Mapping
+### Off-chain outcomes
 
 | Market | Event | Outcome | Winner |
 |--------|-------|---------|--------|
@@ -73,8 +77,6 @@ crank.executeSettleOffchain(fixtureId, roundId, outcome)
 | PenaltyShot | Missed | No | 2 |
 | VARCheck | Overturned | Yes | 1 |
 | VARCheck | Stands | No | 2 |
-
----
 
 ## Proof Data Structure
 
@@ -167,7 +169,7 @@ for each action:
 interface CrankStatus {
   fixtureId: number;
   roundId: number;
-  action: string;     // open_round | settle_onchain | settle_offchain | confirm_round
+  action: string;     // legacy trigger alias for market lifecycle actions
   status: "pending" | "sent" | "confirmed" | "failed";
   txSig?: string;
   error?: string;
@@ -185,17 +187,17 @@ Emitted via `EventEmitter`, consumed by:
 
 ### CU Budget
 
-All `settle_round` transactions use `ComputeBudgetProgram.setComputeUnitLimit(1_400_000)`.
+All market-resolution transactions use `ComputeBudgetProgram.setComputeUnitLimit(1_400_000)`.
 
 ### Finality
 
 ```
-settle_round → ResolvedPending
-  ↓ (wait 60s = FINALITY_DELAY_SECONDS)
-confirm_round → Settled
+resolve_market_with_proof / resolve_market_offchain → ResolvedPending
+  ↓ (immediate)
+confirm_market → Resolved
 ```
 
-Timeout handler checks every 5s for rounds in `ResolvedPending` state with elapsed >= 60s.
+Timeout handler checks every 5s for markets in `ResolvedPending` state with elapsed >= 60s.
 
 ### Error Recovery
 

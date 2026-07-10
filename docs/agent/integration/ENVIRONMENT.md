@@ -16,7 +16,7 @@ tags: [environment, network, program-IDs, endpoints]
 
 | Component | Devnet | Mainnet |
 |-----------|--------|---------|
-| **KickTick** | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` | TBD |
+| **KickTick** | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | TBD |
 | **TxOracle** | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
 
 Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
@@ -45,9 +45,13 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | `TXLINE_API_HOST` | `https://txline-dev.txodds.com` | relayer |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | relayer |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | relayer |
-| `KICKTICK_PROGRAM_ID` | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` | relayer |
+| `KICKTICK_PROGRAM_ID` | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | relayer |
 | `TXORACLE_PROGRAM_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | relayer |
 | `WS_PORT` | `8080` | relayer |
+| `CLOB_DB_PATH` | `/app/data/kicktick-clob.sqlite` | relayer SQLite database |
+| `VITE_SOLANA_RPC_URL` | `https://api.devnet.solana.com` | frontend |
+| `VITE_KICKTICK_PROGRAM_ID` | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | frontend |
+| `VITE_RELAYER_WS_URL` | `ws://localhost:8080` | frontend CLOB WebSocket |
 
 ## Config Values (On-Chain)
 
@@ -63,6 +67,7 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 
 ## Related Docs
 
+- `CLOB.md` — CLOB protocol, persistence, recovery, and WebSocket operations
 - `program/ARCHITECTURE.md` — PDA seeds and account model
 - `operations/TROUBLESHOOTING.md` — error codes
 - `program/BUILD.md` — deploy instructions

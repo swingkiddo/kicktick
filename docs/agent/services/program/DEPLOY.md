@@ -74,7 +74,7 @@ The deploy script performs two checks to avoid redundant operations:
 3. **Check program status** on target network
 4. **Build & deploy** inside Docker container:
    - `anchor build`
-   - `anchor deploy --provider.cluster <network> -- --with-compute-unit-price <fee>`
+   - `solana program deploy target/deploy/kicktick.so --program-id target/deploy/kicktick-keypair.json --url <network> --with-compute-unit-price <fee>`
 5. **Initialize Config PDA** via `scripts/init-kicktick.ts` (idempotent)
 6. **Save deployment info** to `deployment-<network>.json`
 

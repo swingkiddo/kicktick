@@ -28,7 +28,9 @@ type TriggerAction =
   | { type: "confirm_round"; fixtureId; matchPda; roundId }
 ```
 
-### Round States
+The action names are legacy aliases kept for compatibility with the current code. They now drive CLOB market lifecycle actions: open, lock, resolve, and confirm.
+
+### Market States
 
 ```
 open → settling → settled
@@ -62,39 +64,39 @@ open → settling → settled
 
 ```typescript
 handleGoal(event, fixtureId, matchState, actions):
-  // if NextGoalSide round open → settle with outcome (home=Yes, away=No)
-  // open new NextGoalSide round
+  // if NextGoalSide market open → settle with outcome (home=Yes, away=No)
+  // open new NextGoalSide market
 ```
 
 ### Corner → NextCorner
 
 ```typescript
 handleCorner(event, fixtureId, matchState, actions):
-  // if NextCorner round open → settle (home=Yes, away=No)
-  // open new NextCorner round
+  // if NextCorner market open → settle (home=Yes, away=No)
+  // open new NextCorner market
 ```
 
 ### Yellow Card → NextYellowCard
 
 ```typescript
 handleYellowCard(event, fixtureId, matchState, actions):
-  // if NextYellowCard open → settle (home=Yes, away=No)
-  // open new NextYellowCard round
+  // if NextYellowCard market open → settle (home=Yes, away=No)
+  // open new NextYellowCard market
 ```
 
 ### Red Card → RedCardInMatch
 
 ```typescript
 handleRedCard(event, fixtureId, matchState, actions):
-  // if RedCardInMatch open → settle(Yes)
-  // no new round opened (match-level binary market)
+  // if RedCardInMatch market open → settle(Yes)
+  // no new market opened (match-level binary market)
 ```
 
 ### Penalty Award → PenaltyShot
 
 ```typescript
 handlePenalty(fixtureId, matchState, actions):
-  // open new PenaltyShot round
+  // open new PenaltyShot market
 ```
 
 ### Penalty Outcome → PenaltyShot settle + optional shootout
@@ -114,7 +116,7 @@ handlePenaltyOutcome(event, fixtureId, matchState, actions):
 
 ```typescript
 handleVar(event, fixtureId, matchState, actions):
-  // open new VARCheck round
+  // open new VARCheck market
 ```
 
 ### VAR End → VARCheck settle
@@ -146,7 +148,7 @@ checkCronWindows(fixtureId, matchState, actions):
   if match ended → return
   for each window market:
     if matchTime - lastOpened >= interval:
-      open new round
+      open new market
       update lastOpened
 ```
 
@@ -182,13 +184,13 @@ Polled every 5s via `setInterval` in `index.ts`.
 
 ```typescript
 checkTimeouts(fixtureId):
-  for each round:
-    if round expired (now > expiresAt):
-      if round.settlement_model === OnChain:
+  for each market:
+    if market expired (now > expiresAt):
+      if market.settlement_model === OnChain:
         settle_onchain(seq=0)
       else:
         settle_offchain(No)
-    if round settling and now > settleAt + 60s:
+    if market settling and now > settleAt + 60s:
       confirm_round
 ```
 
@@ -199,5 +201,5 @@ checkTimeouts(fixtureId):
 On `FullTime`, `FinishedAfterExtraTime`, `FinishedAfterPenaltyShootout`:
 
 1. Settle any open `RedCardInMatch` → No (no red card in remaining time)
-2. Settle all remaining open rounds → No (event didn't happen)
+2. Settle all remaining open markets → No (event didn't happen)
 3. Stop cron windows

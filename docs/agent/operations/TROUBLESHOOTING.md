@@ -95,7 +95,7 @@ solana logs --url devnet
 ### Verify Program Deployment
 
 ```bash
-solana program show DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ --url devnet
+solana program show HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg --url devnet
 solana program show 6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J --url devnet
 ```
 
