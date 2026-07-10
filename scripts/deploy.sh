@@ -13,6 +13,12 @@ NETWORK="${1:-devnet}"
 PRIORITY_FEE="${2:-10000}"
 IMAGE="kicktick-contracts:dev"
 
+# solana --url needs mainnet-beta (not "mainnet")
+case "$NETWORK" in
+  mainnet) URL_CLUSTER="mainnet-beta" ;;
+  *)       URL_CLUSTER="$NETWORK" ;;
+esac
+
 echo "=== KickTick Deploy ==="
 echo "Network: $NETWORK"
 echo "Priority fee: $PRIORITY_FEE micro-lamports/CU"
@@ -36,7 +42,7 @@ echo "Checking program status on $NETWORK..."
 if docker run --rm \
   -v "$PROJECT_DIR/kicktick:/workspace" \
   "$IMAGE" \
-  solana program show "$PROGRAM_ID" --url "$NETWORK" \
+  solana program show "$PROGRAM_ID" --url "$URL_CLUSTER" \
     --keypair target/deploy/kicktick-keypair.json > /dev/null 2>&1; then
   echo "Program exists. Updating..."
 else
@@ -46,22 +52,28 @@ fi
 # Deploy via Docker
 docker run --rm -t \
   -v "$PROJECT_DIR/kicktick:/workspace" \
-  -v "$PROJECT_DIR/kicktick/kicktick-deployer.json:/home/pdpvs/.config/solana/id.json:ro" \
+  -v "$PROJECT_DIR/keypair.json:/workspace/keypair.json:ro" \
   "$IMAGE" \
   bash -c "
     anchor build && \
-    anchor deploy --provider.cluster $NETWORK -- --with-compute-unit-price $PRIORITY_FEE
+    solana program deploy \
+      target/deploy/kicktick.so \
+      --program-id target/deploy/kicktick-keypair.json \
+      --keypair ./keypair.json \
+      --url $URL_CLUSTER \
+      --with-compute-unit-price $PRIORITY_FEE \
+      --max-sign-attempts 30
   "
 
 # Initialize Config PDA (idempotent)
 echo "Initializing Config PDA..."
 docker run --rm \
   -v "$PROJECT_DIR/kicktick:/workspace" \
-  -v "$PROJECT_DIR/kicktick/kicktick-deployer.json:/home/pdpvs/.config/solana/id.json:ro" \
+  -v "$PROJECT_DIR/keypair.json:/home/pdpvs/.config/solana/id.json:ro" \
   "$IMAGE" \
   bash -c "
     cd /workspace && \
-    npx ts-node scripts/init-kicktick.ts --cluster $NETWORK
+    npx tsx scripts/init-kicktick.ts --cluster $NETWORK
   "
 
 # Save deployment info

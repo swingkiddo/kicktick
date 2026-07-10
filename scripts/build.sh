@@ -23,6 +23,7 @@ build_contracts() {
 }
 
 build_frontend() {
+  copy_generated_idl
   echo "→ Building kicktick-frontend:${STAGE}"
   docker build \
     --target "$STAGE" \
@@ -33,20 +34,26 @@ build_frontend() {
 
 build_relayer() {
   echo "→ Building kicktick-relayer:${STAGE}"
-  local idl_src="$PROJECT_DIR/kicktick/target/idl/kicktick.json"
-  local idl_dst="$PROJECT_DIR/relayer/src/idl/kicktick.json"
-  if [ -f "$idl_src" ]; then
-    mkdir -p "$(dirname "$idl_dst")"
-    cp "$idl_src" "$idl_dst"
-    echo "  IDL copied from contracts build"
-  else
-    echo "  ⚠ IDL not found at kicktick/target/idl/kicktick.json — run './scripts/build.sh contracts' first"
-  fi
+  copy_generated_idl
   docker build \
     --target "$STAGE" \
     -t "kicktick-relayer:${STAGE}" \
     -f "$PROJECT_DIR/relayer/Dockerfile" \
     "$PROJECT_DIR/relayer"
+}
+
+copy_generated_idl() {
+  local idl_src="$PROJECT_DIR/kicktick/target/idl/kicktick.json"
+  local relayer_idl="$PROJECT_DIR/relayer/src/idl/kicktick.json"
+  local frontend_idl="$PROJECT_DIR/frontend/public/idl/kicktick.json"
+  if [ -f "$idl_src" ]; then
+    mkdir -p "$(dirname "$relayer_idl")" "$(dirname "$frontend_idl")"
+    cp "$idl_src" "$relayer_idl"
+    cp "$idl_src" "$frontend_idl"
+    echo "  IDL copied into relayer and frontend build contexts"
+  else
+    echo "  ⚠ IDL not found at kicktick/target/idl/kicktick.json — run './scripts/build.sh contracts' first"
+  fi
 }
 
 case "$SERVICE" in

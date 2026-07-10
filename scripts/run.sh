@@ -32,6 +32,7 @@ run_frontend() {
   docker run --rm $DETACH \
     --name "$name" \
     -v "$PROJECT_DIR/frontend:/app" \
+    -v /app/node_modules \
     -p 3000:3000 \
     "$image"
 }
@@ -71,6 +72,13 @@ run_relayer() {
   local env_opt=""
   [ -f "$env_file" ] && env_opt="--env-file $env_file"
 
+  # The CLOB's SQLite store must outlive a disposable container. An explicitly
+  # configured CLOB_DB_PATH still wins, but defaults inside the mounted data dir.
+  local data_dir="$PROJECT_DIR/relayer/data"
+  mkdir -p "$data_dir"
+  local db_path="${CLOB_DB_PATH:-/app/data/kicktick-clob.sqlite}"
+  local db_env="-e CLOB_DB_PATH=$db_path"
+
   local vol_solana=""
   local solana_key="$HOME/.config/solana"
   [ -d "$solana_key" ] && vol_solana="-v $solana_key:/root/.config/solana:ro"
@@ -78,15 +86,41 @@ run_relayer() {
   local vol_keypair=""
   [ -f "$PROJECT_DIR/keypair.json" ] && vol_keypair="-v $PROJECT_DIR/keypair.json:/app/keypair.json:ro"
 
+  local logs_dir="$PROJECT_DIR/relayer/logs"
+  mkdir -p "$logs_dir"
+  local log_file="$logs_dir/relayer-$(date -u +%Y-%m-%dT%H-%M-%S).log"
+  echo "  Log file:       $log_file"
+
   echo "→ Starting $name ($STAGE)..."
-  docker run --rm $DETACH \
-    --name "$name" \
-    $env_opt \
-    -v "$PROJECT_DIR/relayer:/app" \
-    $vol_solana \
-    $vol_keypair \
-    -p 8080:8080 \
-    "$image"
+  if [ -n "$DETACH" ]; then
+    docker run --rm -d \
+      --name "$name" \
+      $env_opt \
+      $db_env \
+      -v "$PROJECT_DIR/relayer:/app" \
+      -v /app/node_modules \
+      -v "$data_dir:/app/data" \
+      $vol_solana \
+      $vol_keypair \
+      -p 8080:8080 \
+      "$image"
+
+    docker logs -f "$name" 2>&1 | tee "$log_file" &
+    RELAYER_LOG_PID=$!
+    disown "$RELAYER_LOG_PID" 2>/dev/null || true
+  else
+    docker run --rm \
+      --name "$name" \
+      $env_opt \
+      $db_env \
+      -v "$PROJECT_DIR/relayer:/app" \
+      -v /app/node_modules \
+      -v "$data_dir:/app/data" \
+      $vol_solana \
+      $vol_keypair \
+      -p 8080:8080 \
+      "$image" 2>&1 | tee "$log_file"
+  fi
 }
 
 stop_service() {

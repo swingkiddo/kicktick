@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "fund": "npx ts-node kicktick/scripts/fund-devnet-wallets.ts"
+  },
   "dependencies": {
     "@solana/spl-token": "^0.4.14"
   },
