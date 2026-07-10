@@ -84,6 +84,12 @@ export class ClobStore {
 
   close(): void { this.db.close(); }
 
+  clearForTest(): void {
+    this.db.transaction(() => {
+      this.db.exec("DELETE FROM fills; DELETE FROM orders; DELETE FROM nonces; DELETE FROM markets;");
+    })();
+  }
+
   private migrate(): void {
     this.db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     for (let index = 0; index < MIGRATIONS.length; index++) {
