@@ -86,3 +86,26 @@ export interface MarketRecord {
   created_at: number;
   updated_at: number;
 }
+
+/** Last safely processed TxLINE score sequence for a fixture. */
+export interface FixtureCursor {
+  fixture_id: string;
+  last_seq: number;
+  updated_at: number;
+}
+
+/** Durable relayer intent. A process restart must never erase a required lifecycle step. */
+export type MarketActionStatus = "PENDING" | "RUNNING" | "CONFIRMED" | "FAILED";
+
+export interface MarketActionRecord {
+  id: string;
+  fixture_id: string;
+  market: string;
+  action_type: "RESOLVE_ONCHAIN" | "RESOLVE_OFFCHAIN" | "CONFIRM";
+  payload_json: string;
+  status: MarketActionStatus;
+  attempts: number;
+  error?: string;
+  created_at: number;
+  updated_at: number;
+}

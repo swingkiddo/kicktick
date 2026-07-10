@@ -1,7 +1,16 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
-import { Fill, FillStatus, MarketRecord, OrderStatus, StoredOrder } from "./types";
+import {
+  Fill,
+  FillStatus,
+  FixtureCursor,
+  MarketActionRecord,
+  MarketActionStatus,
+  MarketRecord,
+  OrderStatus,
+  StoredOrder,
+} from "./types";
 
 const MIGRATIONS: readonly string[] = [
   `
@@ -33,6 +42,30 @@ const MIGRATIONS: readonly string[] = [
     owner TEXT NOT NULL, nonce TEXT NOT NULL, kind TEXT NOT NULL, created_at INTEGER NOT NULL,
     PRIMARY KEY(owner, nonce)
   );`,
+  `
+  CREATE TABLE IF NOT EXISTS fixture_cursors (
+    fixture_id TEXT PRIMARY KEY,
+    last_seq INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS market_actions (
+    id TEXT PRIMARY KEY,
+    fixture_id TEXT NOT NULL,
+    market TEXT NOT NULL REFERENCES markets(market),
+    action_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS market_actions_active_unique
+    ON market_actions(market, action_type)
+    WHERE status IN ('PENDING', 'RUNNING');
+  CREATE INDEX IF NOT EXISTS market_actions_pending
+    ON market_actions(status, fixture_id, created_at);
+  `,
 ];
 
 type Row = Record<string, unknown>;
@@ -66,6 +99,16 @@ function asMarket(row: Row): MarketRecord {
     market: String(row.market), fixture_id: String(row.fixture_id), market_type: String(row.market_type), market_seq: String(row.market_seq),
     outcome_count: number(row.outcome_count), expires_at: number(row.expires_at), state: String(row.state) as MarketRecord["state"],
     chain_fill_sequence: bigint(row.chain_fill_sequence), created_at: number(row.created_at), updated_at: number(row.updated_at),
+  };
+}
+
+function asMarketAction(row: Row): MarketActionRecord {
+  return {
+    id: String(row.id), fixture_id: String(row.fixture_id), market: String(row.market),
+    action_type: String(row.action_type) as MarketActionRecord["action_type"],
+    payload_json: String(row.payload_json), status: String(row.status) as MarketActionStatus,
+    attempts: number(row.attempts), error: row.error ? String(row.error) : undefined,
+    created_at: number(row.created_at), updated_at: number(row.updated_at),
   };
 }
 
@@ -122,6 +165,46 @@ export class ClobStore {
       ? this.db.prepare(`SELECT * FROM markets WHERE state IN (${states.map(() => "?").join(",")}) ORDER BY expires_at`).all(...states)
       : this.db.prepare("SELECT * FROM markets ORDER BY expires_at").all();
     return (rows as Row[]).map(asMarket);
+  }
+
+  getFixtureCursor(fixtureId: string): FixtureCursor | undefined {
+    const row = this.db.prepare("SELECT * FROM fixture_cursors WHERE fixture_id=?").get(fixtureId) as Row | undefined;
+    return row ? { fixture_id: String(row.fixture_id), last_seq: number(row.last_seq), updated_at: number(row.updated_at) } : undefined;
+  }
+
+  /** Advances only, making duplicate and stale SSE messages harmless across restarts. */
+  advanceFixtureCursor(fixtureId: string, sequence: number): boolean {
+    const now = Date.now();
+    const result = this.db.prepare(`INSERT INTO fixture_cursors(fixture_id,last_seq,updated_at) VALUES (?,?,?)
+      ON CONFLICT(fixture_id) DO UPDATE SET last_seq=excluded.last_seq, updated_at=excluded.updated_at
+      WHERE excluded.last_seq > fixture_cursors.last_seq`).run(fixtureId, sequence, now);
+    return result.changes === 1;
+  }
+
+  insertMarketAction(action: Omit<MarketActionRecord, "attempts" | "created_at" | "updated_at" | "error"> & { attempts?: number; error?: string }): void {
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO market_actions(id,fixture_id,market,action_type,payload_json,status,attempts,error,created_at,updated_at)
+      VALUES (@id,@fixture_id,@market,@action_type,@payload_json,@status,@attempts,@error,@now,@now)`).run({
+      ...action, attempts: action.attempts ?? 0, error: action.error ?? null, now,
+    });
+  }
+
+  getMarketAction(id: string): MarketActionRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM market_actions WHERE id=?").get(id) as Row | undefined;
+    return row ? asMarketAction(row) : undefined;
+  }
+
+  listMarketActions(statuses: MarketActionStatus[] = ["PENDING", "RUNNING"]): MarketActionRecord[] {
+    const rows = this.db.prepare(`SELECT * FROM market_actions WHERE status IN (${statuses.map(() => "?").join(",")}) ORDER BY created_at, id`).all(...statuses) as Row[];
+    return rows.map(asMarketAction);
+  }
+
+  markMarketActionRunning(id: string): void {
+    this.db.prepare("UPDATE market_actions SET status='RUNNING', attempts=attempts+1, updated_at=?, error=NULL WHERE id=?").run(Date.now(), id);
+  }
+
+  updateMarketAction(id: string, status: Exclude<MarketActionStatus, "RUNNING">, error?: string): void {
+    this.db.prepare("UPDATE market_actions SET status=?, error=?, updated_at=? WHERE id=?").run(status, error ?? null, Date.now(), id);
   }
 
   insertOrder(order: StoredOrder): void {
