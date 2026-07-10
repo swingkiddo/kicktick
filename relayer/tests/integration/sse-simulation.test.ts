@@ -25,7 +25,7 @@ function makeMatchState(fixtureId: number, overrides?: Partial<MatchState>): Mat
     awayScore: 0,
     matchClockMs: 600_000,
     lastEventAt: Date.now(),
-    roundCounter: 0,
+    marketCounter: 0,
     participants: { home: "Team A", away: "Team B" },
     ...overrides,
   };
@@ -72,9 +72,9 @@ function runSseLoop(events: TxLineSseEvent[], trigger: MarketTrigger, watcher: F
 function advanceClockAndCheckTimeouts(trigger: MarketTrigger, fixtureId: number): TriggerAction[] {
   const fixtureState = (trigger as any).fixtures.get(fixtureId);
   if (!fixtureState) return [];
-  for (const round of fixtureState.rounds.values()) {
-    if (round.status === "open") {
-      round.expiresAt = 0; // force expiry (checkTimeouts uses Date.now())
+  for (const market of fixtureState.markets.values()) {
+    if (market.status === "open") {
+      market.expiresAt = 0; // force expiry (checkTimeouts uses Date.now())
     }
   }
   return trigger.checkTimeouts(fixtureId);
@@ -96,26 +96,26 @@ describe("SSE Simulation Harness", () => {
       const events = loadEvents("fullMatch");
       const actions = runSseLoop(events, trigger, watcher);
 
-      const openRounds = actions.filter((a) => a.type === "open_round");
-      const settleOffchain = actions.filter((a) => a.type === "settle_offchain");
-      const settleOnchain = actions.filter((a) => a.type === "settle_onchain");
+      const openMarkets = actions.filter((a) => a.type === "open_market");
+      const settleOffchain = actions.filter((a) => a.type === "resolve_market_offchain");
+      const settleOnchain = actions.filter((a) => a.type === "resolve_market_onchain");
 
-      // 5 open rounds: NextGoalSide(FirstHalf), RedCardInMatch(FirstHalf), NextGoalSide(after goal), NextYellowCard, NextCorner
-      expect(openRounds).to.have.length(5);
+      // 5 open markets: NextGoalSide(FirstHalf), RedCardInMatch(FirstHalf), NextGoalSide(after goal), NextYellowCard, NextCorner
+      expect(openMarkets).to.have.length(5);
 
-      const nextGoalSideOpens = openRounds.filter((a) => (a as any).marketType === MarketType.NextGoalSide);
+      const nextGoalSideOpens = openMarkets.filter((a) => (a as any).marketType === MarketType.NextGoalSide);
       expect(nextGoalSideOpens).to.have.length(2);
 
-      const redCardOpens = openRounds.filter((a) => (a as any).marketType === MarketType.RedCardInMatch);
+      const redCardOpens = openMarkets.filter((a) => (a as any).marketType === MarketType.RedCardInMatch);
       expect(redCardOpens).to.have.length(1);
 
-      const nextYellowOpens = openRounds.filter((a) => (a as any).marketType === MarketType.NextYellowCard);
+      const nextYellowOpens = openMarkets.filter((a) => (a as any).marketType === MarketType.NextYellowCard);
       expect(nextYellowOpens).to.have.length(1);
 
-      const nextCornerOpens = openRounds.filter((a) => (a as any).marketType === MarketType.NextCorner);
+      const nextCornerOpens = openMarkets.filter((a) => (a as any).marketType === MarketType.NextCorner);
       expect(nextCornerOpens).to.have.length(1);
 
-      // settle_onchain: NextGoalSide from goal, RedCardInMatch, plus ternary markets at FullTime
+      // resolve_market_onchain: NextGoalSide from goal, RedCardInMatch, plus ternary markets at FullTime
       expect(settleOnchain).to.have.length(5);
 
       const goalSettle = settleOnchain.find(
@@ -130,7 +130,7 @@ describe("SSE Simulation Harness", () => {
       expect(redCardSettle).to.exist;
       expect((redCardSettle as any).settlementSeq).to.equal(104);
 
-      // settle_offchain: no off-chain cleanups (ternary now on-chain)
+      // resolve_market_offchain: no off-chain cleanups (ternary now on-chain)
       expect(settleOffchain).to.have.length(0);
 
       // lastSeenSeq should be 104 (FullTime event seq)
@@ -147,20 +147,20 @@ describe("SSE Simulation Harness", () => {
       const events = loadEvents("goalTimeout");
       const actions = runSseLoop(events, trigger, watcher);
 
-      // After FirstHalf + goal: 3 open_rounds and 1 settle_offchain
-      const openRounds = actions.filter((a) => a.type === "open_round");
-      expect(openRounds).to.have.length(3);
+      // After FirstHalf + goal: 3 open_markets and 1 resolve_market_offchain
+      const openMarkets = actions.filter((a) => a.type === "open_market");
+      expect(openMarkets).to.have.length(3);
 
-      // active NextGoalSide round exists before timeout
-      const activeBefore = trigger.getActiveRounds(FIXTURE_ID);
+      // active NextGoalSide market exists before timeout
+      const activeBefore = trigger.getActiveMarkets(FIXTURE_ID);
       expect(activeBefore.some((r) => r.marketType === MarketType.NextGoalSide)).to.be.true;
 
-      // Force timeout on all open rounds
+      // Force timeout on all open markets
       const timeoutActions = advanceClockAndCheckTimeouts(trigger, FIXTURE_ID);
 
       const noGoalSettle = timeoutActions.find(
         (a) =>
-          a.type === "settle_onchain" &&
+          a.type === "resolve_market_onchain" &&
           (a as any).marketType === MarketType.NextGoalSide,
       );
       expect(noGoalSettle).to.exist;
@@ -194,7 +194,7 @@ describe("SSE Simulation Harness", () => {
         prevBatchCount = batches.length;
 
         const newOpens = stepActions.filter(
-          (a) => a.type === "open_round" && (a as any).marketType === MarketType.GoalInWindow,
+          (a) => a.type === "open_market" && (a as any).marketType === MarketType.GoalInWindow,
         );
 
         if (i === 0) expect(newOpens).to.have.length(1, "after 300s");
@@ -205,7 +205,7 @@ describe("SSE Simulation Harness", () => {
   });
 
   describe("Scenario 4: penaltyShootout", () => {
-    it("opens, settles onchain with seq, and re-opens PenaltyShootoutShot rounds", () => {
+    it("opens, settles onchain with seq, and re-opens PenaltyShootoutShot markets", () => {
       const watcher = new FixtureWatcher(null as any, { kicktickProgramId: PROGRAM_ID } as any);
       const trigger = new MarketTrigger();
       seedFixtureWatcher(watcher, FIXTURE_ID);
@@ -213,14 +213,14 @@ describe("SSE Simulation Harness", () => {
       const events = loadEvents("penaltyShootout");
       const actions = runSseLoop(events, trigger, watcher);
 
-      const openRounds = actions.filter(
-        (a) => a.type === "open_round" && (a as any).marketType === MarketType.PenaltyShootoutShot,
+      const openMarkets = actions.filter(
+        (a) => a.type === "open_market" && (a as any).marketType === MarketType.PenaltyShootoutShot,
       );
-      expect(openRounds).to.have.length(2);
+      expect(openMarkets).to.have.length(2);
 
       const settleOnchain = actions.find(
         (a) =>
-          a.type === "settle_onchain" &&
+          a.type === "resolve_market_onchain" &&
           (a as any).marketType === MarketType.PenaltyShootoutShot &&
           (a as any).settlementSeq === 42,
       );
@@ -237,10 +237,10 @@ describe("SSE Simulation Harness", () => {
       const events = loadEvents("mixedCleanup");
       const actions = runSseLoop(events, trigger, watcher);
 
-      const openRounds = actions.filter((a) => a.type === "open_round");
-      expect(openRounds).to.have.length(3); // NextGoalSide, RedCardInMatch, VARCheck
+      const openMarkets = actions.filter((a) => a.type === "open_market");
+      expect(openMarkets).to.have.length(3); // NextGoalSide, RedCardInMatch, VARCheck
 
-      const settleOnchain = actions.filter((a) => a.type === "settle_onchain");
+      const settleOnchain = actions.filter((a) => a.type === "resolve_market_onchain");
       expect(settleOnchain).to.have.length(2);
       const onchainMarkets = settleOnchain.map((a) => (a as any).marketType);
       expect(onchainMarkets).to.include(MarketType.NextGoalSide);
@@ -248,7 +248,7 @@ describe("SSE Simulation Harness", () => {
       const redCardSettle = settleOnchain.find((a) => (a as any).marketType === MarketType.RedCardInMatch);
       expect((redCardSettle as any).settlementSeq).to.equal(502);
 
-      const settleOffchain = actions.filter((a) => a.type === "settle_offchain");
+      const settleOffchain = actions.filter((a) => a.type === "resolve_market_offchain");
       expect(settleOffchain).to.have.length(1);
       const offchainMarkets = settleOffchain.map((a) => (a as any).marketType);
       expect(offchainMarkets).to.include(MarketType.VARCheck);
@@ -257,7 +257,7 @@ describe("SSE Simulation Harness", () => {
       expect(varCheckSettle).to.exist;
       expect((varCheckSettle as any).outcome).to.equal("No");
 
-      const active = trigger.getActiveRounds(FIXTURE_ID);
+      const active = trigger.getActiveMarkets(FIXTURE_ID);
       expect(active).to.have.length(0);
     });
   });

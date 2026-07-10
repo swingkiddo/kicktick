@@ -96,23 +96,6 @@ describe("FixtureWatcher", () => {
       expect(bump).to.equal(expectedBump);
     });
 
-    it("deriveRoundPda uses seed ['round', matchPda_bytes, roundId_le_bytes]", () => {
-      const [matchPda] = FixtureWatcher.deriveMatchPda(FIXTURE_ID, PROGRAM_ID);
-      const roundId = 3;
-
-      const [pda, bump] = FixtureWatcher.deriveRoundPda(matchPda, roundId, PROGRAM_ID);
-
-      const roundBuf = Buffer.alloc(8);
-      roundBuf.writeBigUInt64LE(BigInt(roundId));
-      const [expected, expectedBump] = PublicKey.findProgramAddressSync(
-        [Buffer.from("round"), matchPda.toBuffer(), roundBuf],
-        PROGRAM_ID,
-      );
-
-      expect(pda.equals(expected)).to.be.true;
-      expect(bump).to.equal(expectedBump);
-    });
-
     it("deriveConfigPda uses seed ['config']", () => {
       const [pda, bump] = FixtureWatcher.deriveConfigPda(PROGRAM_ID);
 
@@ -129,13 +112,6 @@ describe("FixtureWatcher", () => {
       const [pda1] = FixtureWatcher.deriveMatchPda(1, PROGRAM_ID);
       const [pda2] = FixtureWatcher.deriveMatchPda(2, PROGRAM_ID);
       expect(pda1.equals(pda2)).to.be.false;
-    });
-
-    it("different roundIds produce different round PDAs", () => {
-      const [matchPda] = FixtureWatcher.deriveMatchPda(FIXTURE_ID, PROGRAM_ID);
-      const [r1] = FixtureWatcher.deriveRoundPda(matchPda, 1, PROGRAM_ID);
-      const [r2] = FixtureWatcher.deriveRoundPda(matchPda, 2, PROGRAM_ID);
-      expect(r1.equals(r2)).to.be.false;
     });
   });
 
@@ -156,7 +132,7 @@ describe("FixtureWatcher", () => {
       expect(state.homeScore).to.equal(1);
       expect(state.awayScore).to.equal(2);
       expect(state.matchClockMs).to.equal(1700000 * 1000);
-      expect(state.roundCounter).to.equal(0);
+      expect(state.marketCounter).to.equal(0);
       expect(state.participants.home).to.equal("Home Team");
       expect(state.participants.away).to.equal("Away Team");
       expect(state.startTime).to.equal(1699999);
@@ -295,11 +271,11 @@ describe("FixtureWatcher", () => {
     });
 
     describe("Status events", () => {
-      it("FirstHalf updates status, period, increments roundCounter, emits match_start", (done) => {
+      it("FirstHalf updates status, period, increments marketCounter, emits match_start", (done) => {
         watcher.on("match_start", (state: MatchState) => {
           expect(state.status).to.equal(StatusId.FirstHalf);
           expect(state.currentPeriod).to.equal("H1");
-          expect(state.roundCounter).to.equal(1);
+          expect(state.marketCounter).to.equal(1);
           done();
         });
 
@@ -311,13 +287,13 @@ describe("FixtureWatcher", () => {
         expect(result!.status).to.equal(StatusId.FirstHalf);
       });
 
-      it("HalfTime emits match_half and increments roundCounter", (done) => {
+      it("HalfTime emits match_half and increments marketCounter", (done) => {
         watcher.processEvent({ action: SoccerAction.Status, statusId: StatusId.FirstHalf }, FIXTURE_ID);
 
         watcher.on("match_half", (state: MatchState) => {
           expect(state.status).to.equal(StatusId.HalfTime);
           expect(state.currentPeriod).to.equal("HT");
-          expect(state.roundCounter).to.equal(2);
+          expect(state.marketCounter).to.equal(2);
           done();
         });
 
@@ -347,11 +323,11 @@ describe("FixtureWatcher", () => {
         watcher.processEvent({ action: SoccerAction.Status, statusId: StatusId.FullTime }, FIXTURE_ID);
       });
 
-      it("PenaltyShootout emits match_pe and increments roundCounter", (done) => {
+      it("PenaltyShootout emits match_pe and increments marketCounter", (done) => {
         watcher.on("match_pe", (state: MatchState) => {
           expect(state.status).to.equal(StatusId.PenaltyShootout);
           expect(state.currentPeriod).to.equal("PE");
-          expect(state.roundCounter).to.equal(1);
+          expect(state.marketCounter).to.equal(1);
           done();
         });
 

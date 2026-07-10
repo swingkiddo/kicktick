@@ -24,30 +24,31 @@ import { FillSettlementQueue } from "./clob/settlement";
 import { ClobWsApi } from "./clob/ws-api";
 import { ClobRecovery } from "./clob/recovery";
 import { ClobLifecycle } from "./clob/lifecycle";
+import { TestController } from "./api/test-controller";
 import { MarketType as AnchorMarketType } from "./clients/anchor-client";
 import type { FixtureRecord } from "@swingkiddo/txodds-client";
 
 function actionSummary(actions: TriggerAction[]): string {
   return actions.map(a => {
     const extra = "marketType" in a ? ` ${(a as any).marketType}` : "";
-    return `${a.type}[${a.fixtureId}:${a.roundId}${extra}]`;
+    return `${a.type}[${a.fixtureId}:${a.marketSeq}${extra}]`;
   }).join(", ");
 }
 
-function getRoundMessage(status: CrankStatus): WsServerMessage | null {
-  const { fixtureId, roundId, txSig } = status;
+function getMarketMessage(status: CrankStatus): WsServerMessage | null {
+  const { fixtureId, marketSeq, txSig } = status;
   if (!txSig) return null;
   switch (status.action) {
     case "open_round":
       return {
-        type: "round_opened",
-        data: { fixtureId, roundId, marketType: "", lockSeconds: 0, deadlineSeconds: 0, expiresAt: 0 },
+        type: "market_opened",
+        data: { fixtureId, marketSeq, marketType: "", lockSeconds: 0, deadlineSeconds: 0, expiresAt: 0 },
       };
     case "settle_onchain":
     case "settle_offchain":
-      return { type: "round_settled", data: { fixtureId, roundId, outcome: "", txSig } };
+      return { type: "market_resolved", data: { fixtureId, marketSeq, outcome: "", txSig } };
     case "confirm_round":
-      return { type: "round_confirmed", data: { fixtureId, roundId, txSig } };
+      return { type: "market_confirmed", data: { fixtureId, marketSeq, txSig } };
     default:
       return null;
   }
@@ -92,16 +93,16 @@ async function main(): Promise<void> {
     },
   });
 
-  const clobMarketAddress = (action: Extract<TriggerAction, { type: "open_round" }>): string => {
+  const clobMarketAddress = (action: Extract<TriggerAction, { type: "open_market" }>): string => {
     const typeIndex = AnchorClient.marketTypeIndex(action.marketType as AnchorMarketType);
-    return AnchorClient.deriveMarketPda(BigInt(action.fixtureId), typeIndex, BigInt(action.roundId), config.kicktickProgramId)[0].toBase58();
+    return AnchorClient.deriveMarketPda(BigInt(action.fixtureId), typeIndex, BigInt(action.marketSeq), config.kicktickProgramId)[0].toBase58();
   };
 
-  async function prepareClobMarket(action: Extract<TriggerAction, { type: "open_round" }>): Promise<void> {
+  async function prepareClobMarket(action: Extract<TriggerAction, { type: "open_market" }>): Promise<void> {
     const market = clobMarketAddress(action);
     if (!clobStore.getMarket(market)) {
       try {
-        await anchorClient.initMarket(action.fixtureId, action.marketType as AnchorMarketType, action.roundId, action.deadlineSeconds);
+        await anchorClient.initMarket(action.fixtureId, action.marketType as AnchorMarketType, action.marketSeq, action.deadlineSeconds);
       } catch (error) {
         // A restart may observe a market that was initialized before the SQLite write.
         // Only tolerate the idempotent account-exists case; all other errors must keep
@@ -113,7 +114,7 @@ async function main(): Promise<void> {
         market,
         fixture_id: String(action.fixtureId),
         market_type: action.marketType,
-        market_seq: String(action.roundId),
+        market_seq: String(action.marketSeq),
         outcome_count: ["NextGoalSide", "NextCorner", "NextYellowCard", "PenaltyShootoutShot"].includes(action.marketType) ? 3 : 2,
         expires_at: Math.floor(Date.now() / 1000) + action.deadlineSeconds,
         state: "OPEN",
@@ -124,9 +125,9 @@ async function main(): Promise<void> {
 
   async function executeTriggerActions(actions: TriggerAction[]): Promise<void> {
     for (const action of actions) {
-      if (action.type === "open_round") await prepareClobMarket(action);
-      if (action.type === "settle_onchain" || action.type === "settle_offchain") {
-        const market = clobStore.listMarkets().find((candidate) => candidate.fixture_id === String(action.fixtureId) && candidate.market_seq === String(action.roundId));
+      if (action.type === "open_market") await prepareClobMarket(action);
+      if (action.type === "resolve_market_onchain" || action.type === "resolve_market_offchain") {
+        const market = clobStore.listMarkets().find((candidate) => candidate.fixture_id === String(action.fixtureId) && candidate.market_seq === String(action.marketSeq));
         if (market) {
           // Fills are durable and ordered per market. Drain them before the
           // on-chain lock, otherwise a valid matched order could be stranded.
@@ -227,7 +228,7 @@ async function main(): Promise<void> {
   crank.on("status", (status: CrankStatus) => {
     wsServer.broadcast({ type: "tx_status", data: status });
     if (status.status === "confirmed") {
-      const msg = getRoundMessage(status);
+      const msg = getMarketMessage(status);
       if (msg) wsServer.broadcast(msg);
     }
   });
@@ -250,6 +251,18 @@ async function main(): Promise<void> {
       console.error(`Trigger action error: ${e.message} (actions: ${summary})`),
     );
   });
+
+  if (config.testMode) {
+    new TestController(wsServer, {
+      anchor: anchorClient,
+      store: clobStore,
+      lifecycle: clobLifecycle,
+      clob: clobWsApi,
+      watcher: fixtureWatcher,
+      trigger: marketTrigger,
+    });
+    console.log("  Dev test control plane: enabled");
+  }
 
   wsServer.start();
   console.log(`WS server listening on port ${config.wsPort}`);

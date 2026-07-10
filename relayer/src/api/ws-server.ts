@@ -3,14 +3,14 @@ import { WebSocket, WebSocketServer } from "ws";
 
 export type WsServerMessage =
   | { type: "match_state"; data: { fixtureId: number; status: string; homeScore: number; awayScore: number; currentPeriod: string; matchClockMs: number } }
-  | { type: "round_opened"; data: { fixtureId: number; roundId: number; marketType: string; lockSeconds: number; deadlineSeconds: number; expiresAt: number } }
-  | { type: "round_settled"; data: { fixtureId: number; roundId: number; outcome: string; txSig?: string } }
-  | { type: "round_confirmed"; data: { fixtureId: number; roundId: number; txSig?: string } }
-  | { type: "round_cancelled"; data: { fixtureId: number; roundId: number } }
+  | { type: "market_opened"; data: { fixtureId: number; marketSeq: number; marketType: string; lockSeconds: number; deadlineSeconds: number; expiresAt: number } }
+  | { type: "market_resolved"; data: { fixtureId: number; marketSeq: number; outcome: string; txSig?: string } }
+  | { type: "market_confirmed"; data: { fixtureId: number; marketSeq: number; txSig?: string } }
+  | { type: "market_cancelled"; data: { fixtureId: number; marketSeq: number } }
   | { type: "football_event"; data: { action: string; fixtureId: number; participant?: number; description: string } }
-  | { type: "tx_status"; data: { fixtureId: number; roundId: number; status: string; txSig?: string; error?: string } }
+  | { type: "tx_status"; data: { fixtureId: number; marketSeq: number; status: string; txSig?: string; error?: string } }
   | { type: "system_status"; data: { clientCount: number; uptime: number; activeFixtureCount: number; solBalance: number } }
-  | { type: "error_log"; data: { message: string; timestamp: number; fixtureId?: number; roundId?: number } }
+  | { type: "error_log"; data: { message: string; timestamp: number; fixtureId?: number; marketSeq?: number } }
   | { type: "error"; data: { message: string } };
 
 export type WsClientMessage =
@@ -26,6 +26,15 @@ export type WsClientMessage =
   | { type: "submit_order"; data: unknown }
   | { type: "cancel_order"; data: unknown }
   | { type: "cancel_all"; data?: { market?: string } };
+
+export type TestClientMessage =
+  | { type: "test_auth_challenge"; data: { owner: string } }
+  | { type: "test_auth_response"; data: { owner: string; signature: string } }
+  | { type: "test_create_match"; data: { fixtureId: number; homeTeam: string; awayTeam: string } }
+  | { type: "test_create_market"; data: { fixtureId: number; marketType: string; marketSeq: number; deadlineSeconds: number } }
+  | { type: "test_emit_event"; data: { fixtureId: number; action: string; participant?: number; statusId?: number; outcome?: string } }
+  | { type: "test_snapshot" }
+  | { type: "test_reset" };
 
 interface ClientState {
   isAlive: boolean;
@@ -157,6 +166,10 @@ export class WsServer extends EventEmitter {
     }
   }
 
+  send(ws: WebSocket, type: string, data?: unknown): void {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data === undefined ? { type } : { type, data }));
+  }
+
   broadcastToMatch(fixtureId: number, msg: WsServerMessage): void {
     const payload = JSON.stringify(msg);
     const subs = this.subscriptions.get(fixtureId);
@@ -180,5 +193,6 @@ export class WsServer extends EventEmitter {
       }
     }
     this.clients.delete(ws);
+    this.emit("close", ws);
   }
 }

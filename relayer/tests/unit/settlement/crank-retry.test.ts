@@ -72,11 +72,11 @@ function makeProofGathererMock(
   return { gatherer: gatherer as ProofGatherer, calls };
 }
 
-const baseSettleAction: TriggerAction & { type: "settle_onchain" } = {
-  type: "settle_onchain",
+const baseSettleAction: TriggerAction & { type: "resolve_market_onchain" } = {
+  type: "resolve_market_onchain",
   fixtureId: 18187298,
   matchPda: PublicKey.unique().toBase58(),
-  roundId: 1,
+  marketSeq: 1,
   marketType: MarketType.CornerInWindow,
   settlementSeq: 760,
   targetStatKey: 8,

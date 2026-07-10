@@ -22,7 +22,7 @@ export interface MatchState {
   awayScore: number;
   matchClockMs: number;
   lastEventAt: number;
-  roundCounter: number;
+  marketCounter: number;
   participants: { home: string; away: string };
   startTime?: number;
 }
@@ -102,17 +102,6 @@ export class FixtureWatcher extends EventEmitter {
     );
   }
 
-  static deriveRoundPda(
-    matchPda: PublicKey,
-    roundId: number,
-    programId: PublicKey,
-  ): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("round"), matchPda.toBuffer(), toLeBytes64(roundId)],
-      programId,
-    );
-  }
-
   static deriveConfigPda(programId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync([Buffer.from("config")], programId);
   }
@@ -168,7 +157,7 @@ export class FixtureWatcher extends EventEmitter {
       awayScore: bestRecord?.Score?.Participant2?.Total?.Goals ?? 0,
       matchClockMs: bestRecord?.Clock?.Seconds != null ? bestRecord.Clock.Seconds * 1000 : 0,
       lastEventAt: bestRecord?.Ts ? bestRecord.Ts * 1000 : Date.now(),
-      roundCounter: 0,
+      marketCounter: 0,
       participants,
       startTime,
     };
@@ -178,6 +167,23 @@ export class FixtureWatcher extends EventEmitter {
   }
 
   // ── Event processing ──
+
+  registerSyntheticFixture(
+    fixtureId: number,
+    home: string,
+    away: string,
+    status: StatusId = StatusId.FirstHalf,
+  ): MatchState {
+    const [matchPda, matchPdaBump] = FixtureWatcher.deriveMatchPda(fixtureId, this.config.kicktickProgramId);
+    const state: MatchState = {
+      fixtureId, matchPda, matchPdaBump, status,
+      currentPeriod: STATUS_TO_PERIOD[status] || "NS",
+      homeScore: 0, awayScore: 0, matchClockMs: 0, lastEventAt: Date.now(),
+      marketCounter: 0, participants: { home, away },
+    };
+    this.matches.set(fixtureId, state);
+    return state;
+  }
 
   processEvent(event: SoccerEvent, fixtureId: number): MatchState | undefined {
     const state = this.matches.get(fixtureId);
@@ -229,17 +235,17 @@ export class FixtureWatcher extends EventEmitter {
     state.currentPeriod = STATUS_TO_PERIOD[newStatus] || "NS";
 
     if (newStatus === StatusId.FirstHalf) {
-      state.roundCounter++;
+      state.marketCounter++;
       this.emit("match_start", state);
     }
 
     if (newStatus === StatusId.HalfTime) {
-      state.roundCounter++;
+      state.marketCounter++;
       this.emit("match_half", state);
     }
 
     if (newStatus === StatusId.PenaltyShootout) {
-      state.roundCounter++;
+      state.marketCounter++;
       this.emit("match_pe", state);
     }
 

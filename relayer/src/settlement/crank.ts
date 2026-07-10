@@ -7,7 +7,7 @@ import { TriggerAction } from "../market/triggers";
 
 export interface CrankStatus {
   fixtureId: number;
-  roundId: number;
+  marketSeq: number;
   action: string;
   status: "pending" | "sent" | "confirmed" | "failed";
   txSig?: string;
@@ -59,23 +59,23 @@ export class Crank extends EventEmitter {
     this.proofBackoffMs = options?.proofBackoffMs ?? DEFAULT_PROOF_BACKOFF_MS;
   }
 
-  private statusKey(fixtureId: number, roundId: number): string {
-    return `${fixtureId}:${roundId}`;
+  private statusKey(fixtureId: number, marketSeq: number): string {
+    return `${fixtureId}:${marketSeq}`;
   }
 
   private emitStatus(
     fixtureId: number,
-    roundId: number,
+    marketSeq: number,
     action: string,
     status: CrankStatus["status"],
     txSig?: string,
     error?: string,
   ): void {
-    const key = this.statusKey(fixtureId, roundId);
+    const key = this.statusKey(fixtureId, marketSeq);
     const prev = this.statuses.get(key);
     const entry: CrankStatus = {
       fixtureId,
-      roundId,
+      marketSeq,
       action,
       status,
       txSig: txSig ?? prev?.txSig,
@@ -87,16 +87,16 @@ export class Crank extends EventEmitter {
   }
 
   async executeAction(action: TriggerAction): Promise<void> {
-    const { fixtureId, roundId } = action;
+    const { fixtureId, marketSeq } = action;
     switch (action.type) {
-      case "open_round":
-        return this.executeOpenRound(fixtureId, roundId, action);
-      case "settle_onchain":
-        return this.executeSettleOnchain(fixtureId, roundId, action);
-      case "settle_offchain":
-        return this.executeSettleOffchain(fixtureId, roundId, action);
-      case "confirm_round":
-        return this.executeConfirmRound(fixtureId, roundId, action);
+      case "open_market":
+        return this.executeOpenRound(fixtureId, marketSeq, action);
+      case "resolve_market_onchain":
+        return this.executeSettleOnchain(fixtureId, marketSeq, action);
+      case "resolve_market_offchain":
+        return this.executeSettleOffchain(fixtureId, marketSeq, action);
+      case "confirm_market":
+        return this.executeConfirmRound(fixtureId, marketSeq, action);
     }
   }
 
@@ -106,8 +106,8 @@ export class Crank extends EventEmitter {
     }
   }
 
-  getStatus(fixtureId: number, roundId: number): CrankStatus | undefined {
-    return this.statuses.get(this.statusKey(fixtureId, roundId));
+  getStatus(fixtureId: number, marketSeq: number): CrankStatus | undefined {
+    return this.statuses.get(this.statusKey(fixtureId, marketSeq));
   }
 
   getPending(): CrankStatus[] {
@@ -160,37 +160,37 @@ export class Crank extends EventEmitter {
 
   private async executeOpenRound(
     fixtureId: number,
-    roundId: number,
-    action: TriggerAction & { type: "open_round" },
+    marketSeq: number,
+    action: TriggerAction & { type: "open_market" },
   ): Promise<void> {
     const matchPda = new PublicKey(action.matchPda);
-    this.emitStatus(fixtureId, roundId, "open_round", "pending");
+    this.emitStatus(fixtureId, marketSeq, "open_round", "pending");
 
     try {
       const txSig = await this.executeWithRetry(() =>
         this.anchorClient.openRound(
-          roundId,
+          marketSeq,
           action.marketType,
           action.lockSeconds,
           action.deadlineSeconds,
           matchPda,
         ),
       );
-      this.emitStatus(fixtureId, roundId, "open_round", "confirmed", txSig);
+      this.emitStatus(fixtureId, marketSeq, "open_round", "confirmed", txSig);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.emitStatus(fixtureId, roundId, "open_round", "failed", undefined, msg);
+      this.emitStatus(fixtureId, marketSeq, "open_round", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
     }
   }
 
   private async executeSettleOnchain(
     fixtureId: number,
-    roundId: number,
-    action: TriggerAction & { type: "settle_onchain" },
+    marketSeq: number,
+    action: TriggerAction & { type: "resolve_market_onchain" },
   ): Promise<void> {
     const matchPda = new PublicKey(action.matchPda);
-    this.emitStatus(fixtureId, roundId, "settle_onchain", "pending");
+    this.emitStatus(fixtureId, marketSeq, "settle_onchain", "pending");
 
     try {
       const keys = this.proofGatherer.getStatKeysForMarket(action.marketType);
@@ -277,60 +277,60 @@ export class Crank extends EventEmitter {
       }
 
       const txSig = await this.executeWithRetry(() =>
-        this.anchorClient.settleRound(roundId, matchPda, proofArgs),
+        this.anchorClient.settleRound(marketSeq, matchPda, proofArgs),
       );
 
-      this.emitStatus(fixtureId, roundId, "settle_onchain", "confirmed", txSig);
+      this.emitStatus(fixtureId, marketSeq, "settle_onchain", "confirmed", txSig);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.emitStatus(fixtureId, roundId, "settle_onchain", "failed", undefined, msg);
+      this.emitStatus(fixtureId, marketSeq, "settle_onchain", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
     }
   }
 
   private async executeSettleOffchain(
     fixtureId: number,
-    roundId: number,
-    action: TriggerAction & { type: "settle_offchain" },
+    marketSeq: number,
+    action: TriggerAction & { type: "resolve_market_offchain" },
   ): Promise<void> {
     const matchPda = new PublicKey(action.matchPda);
-    this.emitStatus(fixtureId, roundId, "settle_offchain", "pending");
+    this.emitStatus(fixtureId, marketSeq, "settle_offchain", "pending");
 
     try {
       const txSig = await this.executeWithRetry(() =>
         this.anchorClient.settleOffchainRound(
-          roundId,
+          marketSeq,
           matchPda,
           action.outcome,
           outcomeToWinner(action.outcome),
         ),
       );
 
-      this.emitStatus(fixtureId, roundId, "settle_offchain", "confirmed", txSig);
+      this.emitStatus(fixtureId, marketSeq, "settle_offchain", "confirmed", txSig);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.emitStatus(fixtureId, roundId, "settle_offchain", "failed", undefined, msg);
+      this.emitStatus(fixtureId, marketSeq, "settle_offchain", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
     }
   }
 
   private async executeConfirmRound(
     fixtureId: number,
-    roundId: number,
-    action: TriggerAction & { type: "confirm_round" },
+    marketSeq: number,
+    action: TriggerAction & { type: "confirm_market" },
   ): Promise<void> {
     const matchPda = new PublicKey(action.matchPda);
-    this.emitStatus(fixtureId, roundId, "confirm_round", "pending");
+    this.emitStatus(fixtureId, marketSeq, "confirm_round", "pending");
 
     try {
       const txSig = await this.executeWithRetry(() =>
-        this.anchorClient.confirmRound(roundId, matchPda),
+        this.anchorClient.confirmRound(marketSeq, matchPda),
       );
 
-      this.emitStatus(fixtureId, roundId, "confirm_round", "confirmed", txSig);
+      this.emitStatus(fixtureId, marketSeq, "confirm_round", "confirmed", txSig);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.emitStatus(fixtureId, roundId, "confirm_round", "failed", undefined, msg);
+      this.emitStatus(fixtureId, marketSeq, "confirm_round", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
     }
   }
