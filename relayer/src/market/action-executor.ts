@@ -10,6 +10,10 @@ export interface CrankActionRunner {
   executeAction(action: TriggerAction): Promise<string>;
 }
 
+export interface MarketStateReader {
+  getMarketState(marketAddress: string): Promise<MarketRecord["state"]>;
+}
+
 export interface MarketActionExecutorOptions {
   onMarketChanged?: (market: string) => void;
 }
@@ -33,6 +37,29 @@ export class MarketActionExecutor {
 
   enqueue(actions: TriggerAction[]): Promise<void> {
     return Promise.all(actions.map((action) => this.enqueueOne(action))).then(() => undefined);
+  }
+
+  /** Restore durable work only when the authoritative account has not already advanced. */
+  async recover(reader: MarketStateReader): Promise<void> {
+    for (const market of this.store.listMarkets()) {
+      const state = await reader.getMarketState(market.market);
+      this.lifecycle.reconcile(market.market, state);
+    }
+
+    const actions = this.store.listMarketActions();
+    for (const record of actions) {
+      const chainState = await reader.getMarketState(record.market);
+      const action = JSON.parse(record.payload_json) as TriggerAction;
+      const completed = record.action_type === "CONFIRM"
+        ? chainState === "RESOLVED"
+        : chainState === "RESOLVED_PENDING" || chainState === "RESOLVED";
+      if (completed) {
+        this.store.updateMarketAction(record.id, "CONFIRMED");
+        continue;
+      }
+      this.store.requeueMarketAction(record.id);
+      await this.enqueue([action]);
+    }
   }
 
   private enqueueOne(action: TriggerAction): Promise<void> {
@@ -87,14 +114,7 @@ export class MarketActionExecutor {
     await this.fillSettlement.drain(market.market);
     await this.lifecycle.freezeAndLock(market.market);
     const actionId = `${market.market}:${action.type}`;
-    this.store.insertMarketAction({
-      id: actionId,
-      fixture_id: String(action.fixtureId),
-      market: market.market,
-      action_type: action.type === "resolve_market_onchain" ? "RESOLVE_ONCHAIN" : "RESOLVE_OFFCHAIN",
-      payload_json: JSON.stringify(action),
-      status: "PENDING",
-    });
+    this.persistAction(actionId, market, action, action.type === "resolve_market_onchain" ? "RESOLVE_ONCHAIN" : "RESOLVE_OFFCHAIN");
     this.store.markMarketActionRunning(actionId);
 
     try {
@@ -115,14 +135,7 @@ export class MarketActionExecutor {
     if (market.state !== "RESOLVED_PENDING") throw new Error(`cannot confirm market ${market.market} from ${market.state}`);
 
     const actionId = `${market.market}:confirm_market`;
-    this.store.insertMarketAction({
-      id: actionId,
-      fixture_id: String(action.fixtureId),
-      market: market.market,
-      action_type: "CONFIRM",
-      payload_json: JSON.stringify(action),
-      status: "PENDING",
-    });
+    this.persistAction(actionId, market, action, "CONFIRM");
     this.store.markMarketActionRunning(actionId);
 
     try {
@@ -139,5 +152,26 @@ export class MarketActionExecutor {
 
   private changed(market: string): void {
     this.options.onMarketChanged?.(market);
+  }
+
+  private persistAction(
+    id: string,
+    market: MarketRecord,
+    action: TriggerAction,
+    actionType: "RESOLVE_ONCHAIN" | "RESOLVE_OFFCHAIN" | "CONFIRM",
+  ): void {
+    const existing = this.store.getMarketAction(id);
+    if (existing) {
+      this.store.requeueMarketAction(id);
+      return;
+    }
+    this.store.insertMarketAction({
+      id,
+      fixture_id: String(action.fixtureId),
+      market: market.market,
+      action_type: actionType,
+      payload_json: JSON.stringify(action),
+      status: "PENDING",
+    });
   }
 }

@@ -9,7 +9,7 @@ import {
 import { AnchorProvider, Program, Wallet, BN } from "@anchor-lang/core";
 import type { Idl } from "@anchor-lang/core/dist/cjs/idl";
 import { Config } from "../config";
-import type { Fill } from "../clob/types";
+import type { Fill, MarketRecord } from "../clob/types";
 
 // ── IDL ──
 
@@ -459,6 +459,19 @@ export class AnchorClient {
   async fetchConfig(): Promise<any> {
     const [configPda] = AnchorClient.deriveConfigPda(this.programId);
     return (this.program.account as Accounts).config.fetch(configPda);
+  }
+
+  async getMarketState(marketAddress: string): Promise<MarketRecord["state"]> {
+    const account = await (this.program.account as any).market.fetch(new PublicKey(marketAddress));
+    const rawStatus = account.status;
+    const variant = typeof rawStatus === "string" ? rawStatus : Object.keys(rawStatus ?? {})[0];
+    const states: Record<string, MarketRecord["state"]> = {
+      open: "OPEN", locked: "LOCKED", resolvedPending: "RESOLVED_PENDING",
+      resolved: "RESOLVED", voided: "VOIDED",
+    };
+    const state = states[variant];
+    if (!state) throw new AnchorClientError(`unknown on-chain market status ${String(variant)}`);
+    return state;
   }
 
   /** CLOB settlement helpers. They intentionally use the generated IDL at runtime. */

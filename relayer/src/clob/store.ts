@@ -194,13 +194,17 @@ export class ClobStore {
     return row ? asMarketAction(row) : undefined;
   }
 
-  listMarketActions(statuses: MarketActionStatus[] = ["PENDING", "RUNNING"]): MarketActionRecord[] {
+  listMarketActions(statuses: MarketActionStatus[] = ["PENDING", "RUNNING", "FAILED"]): MarketActionRecord[] {
     const rows = this.db.prepare(`SELECT * FROM market_actions WHERE status IN (${statuses.map(() => "?").join(",")}) ORDER BY created_at, id`).all(...statuses) as Row[];
     return rows.map(asMarketAction);
   }
 
   markMarketActionRunning(id: string): void {
     this.db.prepare("UPDATE market_actions SET status='RUNNING', attempts=attempts+1, updated_at=?, error=NULL WHERE id=?").run(Date.now(), id);
+  }
+
+  requeueMarketAction(id: string): void {
+    this.db.prepare("UPDATE market_actions SET status='PENDING', error=NULL, updated_at=? WHERE id=?").run(Date.now(), id);
   }
 
   updateMarketAction(id: string, status: Exclude<MarketActionStatus, "RUNNING">, error?: string): void {

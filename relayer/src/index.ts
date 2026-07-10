@@ -111,6 +111,11 @@ async function main(): Promise<void> {
     config.kicktickProgramId,
     { onMarketChanged: (market) => clobWsApi.publishMarket(market) },
   );
+  try {
+    await marketActions.recover(anchorClient);
+  } catch (error) {
+    console.warn(`  Market lifecycle recovery deferred: ${error instanceof Error ? error.message : error}`);
+  }
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
   const marketTrigger = new MarketTrigger();
   const sseLogger = new SseLogger(

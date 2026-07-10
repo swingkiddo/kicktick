@@ -27,6 +27,13 @@ export class ClobLifecycle {
   markResolved(marketAddress: string): void { this.transition(marketAddress, ["RESOLVED_PENDING"], "RESOLVED"); }
   markVoided(marketAddress: string): void { this.transition(marketAddress, ["OPEN", "LOCKED", "RESOLVED_PENDING"], "VOIDED"); }
 
+  /** Solana remains authoritative after a crash; this only mirrors its observed state locally. */
+  reconcile(marketAddress: string, state: MarketRecord["state"]): void {
+    const market = this.store.getMarket(marketAddress);
+    if (!market || market.state === state) return;
+    this.store.upsertMarket({ ...market, state });
+  }
+
   private transition(marketAddress: string, allowed: MarketRecord["state"][], next: MarketRecord["state"]): void {
     const market = this.store.getMarket(marketAddress);
     if (!market) throw new Error(`unknown market ${marketAddress}`);

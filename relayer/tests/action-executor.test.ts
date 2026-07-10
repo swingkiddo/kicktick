@@ -72,4 +72,26 @@ describe("MarketActionExecutor", () => {
     expect(market.state).to.equal("LOCKED");
     expect(store.listMarketActions(["FAILED"])).to.have.length(1);
   });
+
+  it("replays a durable resolution only while the on-chain market is still locked", async () => {
+    const action = open();
+    await executor.enqueue([action]);
+    const market = store.listMarkets()[0];
+    store.upsertMarket({ ...market, state: "LOCKED" });
+    const resolve: TriggerAction = {
+      type: "resolve_market_onchain", fixtureId: 42, matchPda: "match", marketSeq: 1,
+      marketType: MarketType.NextGoalSide, settlementSeq: 99,
+    };
+    store.insertMarketAction({
+      id: `${market.market}:resolve_market_onchain`, fixture_id: "42", market: market.market,
+      action_type: "RESOLVE_ONCHAIN", payload_json: JSON.stringify(resolve), status: "FAILED",
+    });
+
+    calls = [];
+    await executor.recover({ getMarketState: async () => "LOCKED" });
+
+    expect(calls.map((call) => call.type)).to.deep.equal(["resolve_market_onchain"]);
+    expect(store.listMarkets()[0].state).to.equal("RESOLVED_PENDING");
+    expect(store.getMarketAction(`${market.market}:resolve_market_onchain`)).to.include({ status: "CONFIRMED" });
+  });
 });
