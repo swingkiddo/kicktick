@@ -24,8 +24,8 @@ import { FillSettlementQueue } from "./clob/settlement";
 import { ClobWsApi } from "./clob/ws-api";
 import { ClobRecovery } from "./clob/recovery";
 import { ClobLifecycle } from "./clob/lifecycle";
+import { MarketActionExecutor } from "./market/action-executor";
 import { TestController } from "./api/test-controller";
-import { MarketType as AnchorMarketType } from "./clients/anchor-client";
 import type { FixtureRecord } from "@swingkiddo/txodds-client";
 
 function actionSummary(actions: TriggerAction[]): string {
@@ -93,54 +93,6 @@ async function main(): Promise<void> {
     },
   });
 
-  const clobMarketAddress = (action: Extract<TriggerAction, { type: "open_market" }>): string => {
-    const typeIndex = AnchorClient.marketTypeIndex(action.marketType as AnchorMarketType);
-    return AnchorClient.deriveMarketPda(BigInt(action.fixtureId), typeIndex, BigInt(action.marketSeq), config.kicktickProgramId)[0].toBase58();
-  };
-
-  async function prepareClobMarket(action: Extract<TriggerAction, { type: "open_market" }>): Promise<void> {
-    const market = clobMarketAddress(action);
-    if (!clobStore.getMarket(market)) {
-      try {
-        await anchorClient.initMarket(action.fixtureId, action.marketType as AnchorMarketType, action.marketSeq, action.deadlineSeconds);
-      } catch (error) {
-        // A restart may observe a market that was initialized before the SQLite write.
-        // Only tolerate the idempotent account-exists case; all other errors must keep
-        // the market out of the order book.
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/already in use|already initialized|account.*exists/i.test(message)) throw error;
-      }
-      clobLifecycle.open({
-        market,
-        fixture_id: String(action.fixtureId),
-        market_type: action.marketType,
-        market_seq: String(action.marketSeq),
-        outcome_count: ["NextGoalSide", "NextCorner", "NextYellowCard", "PenaltyShootoutShot"].includes(action.marketType) ? 3 : 2,
-        expires_at: Math.floor(Date.now() / 1000) + action.deadlineSeconds,
-        state: "OPEN",
-      });
-      clobWsApi.publishMarket(market);
-    }
-  }
-
-  async function executeTriggerActions(actions: TriggerAction[]): Promise<void> {
-    for (const action of actions) {
-      if (action.type === "open_market") await prepareClobMarket(action);
-      if (action.type === "resolve_market_onchain" || action.type === "resolve_market_offchain") {
-        const market = clobStore.listMarkets().find((candidate) => candidate.fixture_id === String(action.fixtureId) && candidate.market_seq === String(action.marketSeq));
-        if (market) {
-          // Fills are durable and ordered per market. Drain them before the
-          // on-chain lock, otherwise a valid matched order could be stranded.
-          await fillSettlement.drain(market.market).catch((error) => {
-            console.warn(`CLOB fill drain failed for ${market.market}:`, error instanceof Error ? error.message : error);
-          });
-          await clobLifecycle.freezeAndLock(market.market);
-          clobWsApi.publishMarket(market.market);
-        }
-      }
-      await crank.executeAction(action);
-    }
-  }
   fillSettlement.on("confirmed", fill => { if (fill) clobWsApi.publishMarket(fill.market); });
   fillSettlement.on("failed", fill => { if (fill) clobWsApi.publishMarket(fill.market); });
   try {
@@ -151,6 +103,14 @@ async function main(): Promise<void> {
   }
   const proofGatherer = new ProofGatherer(txlineClient);
   const crank = new Crank(anchorClient, proofGatherer);
+  const marketActions = new MarketActionExecutor(
+    clobStore,
+    clobLifecycle,
+    fillSettlement,
+    crank,
+    config.kicktickProgramId,
+    { onMarketChanged: (market) => clobWsApi.publishMarket(market) },
+  );
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
   const marketTrigger = new MarketTrigger();
   const sseLogger = new SseLogger(
@@ -247,7 +207,7 @@ async function main(): Promise<void> {
   marketTrigger.on("actions", (actions) => {
     const summary = actionSummary(actions);
     console.log(`[ACTIONS] ${summary}`);
-    executeTriggerActions(actions).catch((e: Error) =>
+    marketActions.enqueue(actions).catch((e: Error) =>
       console.error(`Trigger action error: ${e.message} (actions: ${summary})`),
     );
   });
@@ -396,7 +356,7 @@ async function main(): Promise<void> {
         const timeoutActions = marketTrigger.checkTimeouts(fixtureId);
         if (timeoutActions.length > 0) {
           console.log(`[TIMEOUT] fixture=${fixtureId} actions=${actionSummary(timeoutActions)}`);
-          executeTriggerActions(timeoutActions).catch((e: Error) =>
+          marketActions.enqueue(timeoutActions).catch((e: Error) =>
             console.error(`Timeout actions error [${fixtureId}]: ${e.message}`),
           );
         }

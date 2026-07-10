@@ -86,7 +86,11 @@ export class Crank extends EventEmitter {
     this.emit("status", entry);
   }
 
-  async executeAction(action: TriggerAction): Promise<void> {
+  /**
+   * Execute one lifecycle transaction. Callers must observe rejection so that
+   * durable lifecycle state is advanced only after Solana confirms the step.
+   */
+  async executeAction(action: TriggerAction): Promise<string> {
     const { fixtureId, marketSeq } = action;
     switch (action.type) {
       case "open_market":
@@ -100,10 +104,12 @@ export class Crank extends EventEmitter {
     }
   }
 
-  async executeActions(actions: TriggerAction[]): Promise<void> {
+  async executeActions(actions: TriggerAction[]): Promise<string[]> {
+    const signatures: string[] = [];
     for (const action of actions) {
-      await this.executeAction(action);
+      signatures.push(await this.executeAction(action));
     }
+    return signatures;
   }
 
   getStatus(fixtureId: number, marketSeq: number): CrankStatus | undefined {
@@ -162,7 +168,7 @@ export class Crank extends EventEmitter {
     fixtureId: number,
     marketSeq: number,
     action: TriggerAction & { type: "open_market" },
-  ): Promise<void> {
+  ): Promise<string> {
     this.emitStatus(fixtureId, marketSeq, "open_market", "pending");
 
     try {
@@ -175,10 +181,12 @@ export class Crank extends EventEmitter {
         ),
       );
       this.emitStatus(fixtureId, marketSeq, "open_market", "confirmed", txSig);
+      return txSig;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.emitStatus(fixtureId, marketSeq, "open_market", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
+      throw err;
     }
   }
 
@@ -186,7 +194,7 @@ export class Crank extends EventEmitter {
     fixtureId: number,
     marketSeq: number,
     action: TriggerAction & { type: "resolve_market_onchain" },
-  ): Promise<void> {
+  ): Promise<string> {
     const marketAddress = AnchorClient.deriveMarketPda(
       BigInt(fixtureId),
       AnchorClient.marketTypeIndex(action.marketType),
@@ -197,7 +205,7 @@ export class Crank extends EventEmitter {
 
     try {
       const keys = this.proofGatherer.getStatKeysForMarket(action.marketType);
-      if (keys.length === 0) return;
+      if (keys.length === 0) throw new Error(`market type ${action.marketType} has no on-chain proof mapping`);
 
       // When targetStatKey is provided (event-triggered), use only that key
       const statKey = action.targetStatKey ?? keys[0].statKey;
@@ -284,10 +292,12 @@ export class Crank extends EventEmitter {
       );
 
       this.emitStatus(fixtureId, marketSeq, "settle_onchain", "confirmed", txSig);
+      return txSig;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.emitStatus(fixtureId, marketSeq, "settle_onchain", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
+      throw err;
     }
   }
 
@@ -295,7 +305,7 @@ export class Crank extends EventEmitter {
     fixtureId: number,
     marketSeq: number,
     action: TriggerAction & { type: "resolve_market_offchain" },
-  ): Promise<void> {
+  ): Promise<string> {
     const marketAddress = AnchorClient.deriveMarketPda(
       BigInt(fixtureId),
       AnchorClient.marketTypeIndex(action.marketType),
@@ -313,10 +323,12 @@ export class Crank extends EventEmitter {
       );
 
       this.emitStatus(fixtureId, marketSeq, "settle_offchain", "confirmed", txSig);
+      return txSig;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.emitStatus(fixtureId, marketSeq, "settle_offchain", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
+      throw err;
     }
   }
 
@@ -324,7 +336,7 @@ export class Crank extends EventEmitter {
     fixtureId: number,
     marketSeq: number,
     action: TriggerAction & { type: "confirm_market" },
-  ): Promise<void> {
+  ): Promise<string> {
     const marketAddress = AnchorClient.deriveMarketPda(
       BigInt(fixtureId),
       AnchorClient.marketTypeIndex(action.marketType),
@@ -339,10 +351,12 @@ export class Crank extends EventEmitter {
       );
 
       this.emitStatus(fixtureId, marketSeq, "confirm_market", "confirmed", txSig);
+      return txSig;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.emitStatus(fixtureId, marketSeq, "confirm_market", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
+      throw err;
     }
   }
 }
