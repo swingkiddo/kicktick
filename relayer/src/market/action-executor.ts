@@ -25,6 +25,7 @@ export interface MarketActionExecutorOptions {
  */
 export class MarketActionExecutor {
   private readonly tails = new Map<number, Promise<void>>();
+  private recoveryTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly store: ClobStore,
@@ -45,6 +46,15 @@ export class MarketActionExecutor {
 
   /** Restore durable work only when the authoritative account has not already advanced. */
   async recover(reader: MarketStateReader): Promise<void> {
+    const previous = this.recoveryTail;
+    const next = previous.catch(() => undefined).then(() => this.recoverNow(reader));
+    this.recoveryTail = next;
+    return next.finally(() => {
+      if (this.recoveryTail === next) this.recoveryTail = Promise.resolve();
+    });
+  }
+
+  private async recoverNow(reader: MarketStateReader): Promise<void> {
     for (const market of this.store.listMarkets()) {
       const state = await reader.getMarketState(market.market);
       this.lifecycle.reconcile(market.market, state);
@@ -59,6 +69,12 @@ export class MarketActionExecutor {
         : chainState === "RESOLVED_PENDING" || chainState === "RESOLVED";
       if (completed) {
         this.store.updateMarketAction(record.id, "CONFIRMED");
+        if (record.action_type !== "CONFIRM" && chainState === "RESOLVED_PENDING") {
+          await this.enqueue([{
+            ...(action as Extract<TriggerAction, { type: "resolve_market_onchain" | "resolve_market_offchain" }>),
+            type: "confirm_market",
+          }]);
+        }
         continue;
       }
       this.store.requeueMarketAction(record.id);

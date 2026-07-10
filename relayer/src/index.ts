@@ -231,7 +231,7 @@ async function main(): Promise<void> {
 
   wsServer.on("subscribe_all", (ws) => {
     const allFixtures = fixtureWatcher.getAllFixtures();
-    for (const matchState of allFixtures) {
+      for (const matchState of allFixtures) {
       ws.send(JSON.stringify({
         type: "match_state",
         data: {
@@ -399,6 +399,9 @@ async function main(): Promise<void> {
       } catch (err) {
         console.error(`Timeout check error [${fixtureId}]:`, err instanceof Error ? err.message : err);
       }
+      marketActions.recover(anchorClient).catch((error) => {
+        console.warn("Periodic market lifecycle recovery failed:", error instanceof Error ? error.message : error);
+      });
     }
   }, 5000);
 
