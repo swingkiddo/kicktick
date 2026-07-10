@@ -231,6 +231,12 @@ export class ClobStore {
     return (this.db.prepare("SELECT * FROM fills WHERE status IN ('MATCHED','SUBMITTED') ORDER BY market, market_sequence").all() as Row[]).map(asFill);
   }
 
+  /** Allocates sequences after already-reserved fills, not only after confirmed fills. */
+  nextFillSequence(market: string, confirmedSequence: bigint): bigint {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM fills WHERE market=? AND status IN ('MATCHED','SUBMITTED')").get(market) as { count: number };
+    return confirmedSequence + BigInt(row.count);
+  }
+
   private updateFill(id: string, status: FillStatus, txSignature?: string, error?: string): void {
     this.db.prepare("UPDATE fills SET status=?, tx_signature=COALESCE(?,tx_signature), error=COALESCE(?,error), updated_at=? WHERE id=?").run(status, txSignature ?? null, error ?? null, Date.now(), id);
   }

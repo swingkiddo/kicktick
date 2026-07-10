@@ -16,6 +16,11 @@ export class FillSettlementQueue extends EventEmitter {
     return next.finally(() => { if (this.tails.get(fill.market) === next) this.tails.delete(fill.market); });
   }
 
+  /** Wait until all fills already queued for a market have reached a terminal state. */
+  drain(market: string): Promise<void> {
+    return this.tails.get(market) ?? Promise.resolve();
+  }
+
   private async settle(fill: Fill): Promise<void> {
     try {
       const signature = fill.kind === "COMPLETE_SET"

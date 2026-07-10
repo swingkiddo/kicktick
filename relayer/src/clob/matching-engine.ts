@@ -40,7 +40,7 @@ export class MatchingEngine {
     const expired_order_ids = this.store.expireOrders(nowSeconds);
     if (market.state !== "OPEN" || nowSeconds >= market.expires_at - 2) return { fills: [], expired_order_ids };
     const fills: Fill[] = [];
-    let sequence = market.chain_fill_sequence;
+    let sequence = this.store.nextFillSequence(market.market, market.chain_fill_sequence);
 
     // Repeat until neither direct nor complete-set matching can progress. Re-read
     // after every reservation so pending quantity participates in availability.
