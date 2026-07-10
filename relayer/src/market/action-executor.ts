@@ -39,6 +39,10 @@ export class MarketActionExecutor {
     return Promise.all(actions.map((action) => this.enqueueOne(action))).then(() => undefined);
   }
 
+  async drain(): Promise<void> {
+    await Promise.all([...this.tails.values()].map((tail) => tail.catch(() => undefined)));
+  }
+
   /** Restore durable work only when the authoritative account has not already advanced. */
   async recover(reader: MarketStateReader): Promise<void> {
     for (const market of this.store.listMarkets()) {

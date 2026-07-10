@@ -5,7 +5,6 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import path from "path";
-import fs from "fs";
 import { loadConfig } from "./config";
 import { TxLineClient } from "./clients/txline-client";
 import { AnchorClient } from "./clients/anchor-client";
@@ -56,6 +55,7 @@ function getMarketMessage(status: CrankStatus): WsServerMessage | null {
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const rpcConnection = new Connection(config.solanaRpcUrl, "confirmed");
 
   console.log("╔══════════════════════════════════════════╗");
   console.log("║       KickTick Relayer v0.1.0            ║");
@@ -98,6 +98,14 @@ async function main(): Promise<void> {
   try {
     const recovery = await new ClobRecovery(clobStore, matchingEngine).recover(anchorClient);
     console.log(`  CLOB recovery: ${recovery.restored_orders} books, ${recovery.confirmed_fills.length} confirmed, ${recovery.retry_fills.length} pending`);
+    for (const fillId of recovery.retry_fills) {
+      const fill = clobStore.getFill(fillId);
+      if (fill) {
+        fillSettlement.submit(fill).catch((error) => {
+          console.warn(`CLOB fill retry failed for ${fillId}:`, error instanceof Error ? error.message : error);
+        });
+      }
+    }
   } catch (error) {
     console.warn(`  CLOB recovery deferred: ${error instanceof Error ? error.message : error}`);
   }
@@ -172,18 +180,7 @@ async function main(): Promise<void> {
         throw e;
       }
 
-      // Save API token to .env for reuse
-      const envPath = path.resolve(__dirname, "../.env");
-      let envContent = "";
-      try { envContent = fs.readFileSync(envPath, "utf-8"); } catch {}
-      const tokenLine = `TXLINE_API_TOKEN=${apiToken}`;
-      if (envContent.includes("TXLINE_API_TOKEN=")) {
-        envContent = envContent.replace(/^TXLINE_API_TOKEN=.*$/m, tokenLine);
-      } else {
-        envContent += `\n${tokenLine}\n`;
-      }
-      fs.writeFileSync(envPath, envContent, "utf-8");
-      console.log(`  API token saved to .env`);
+      console.log("  API token activated for this process; provide TXLINE_API_TOKEN through the runtime environment to reuse it.");
     } catch (err) {
       console.error("Failed to activate API token:", err instanceof Error ? err.message : err);
       console.warn("Continuing with limited guest access...");
@@ -275,8 +272,7 @@ async function main(): Promise<void> {
 
     // Init Match PDA on-chain if not yet created
     const [matchPda] = AnchorClient.deriveMatchPda(fixtureId, config.kicktickProgramId);
-    const rpcConn = new Connection(config.solanaRpcUrl, "confirmed");
-    const matchOnChain = await rpcConn.getAccountInfo(matchPda);
+    const matchOnChain = await rpcConnection.getAccountInfo(matchPda);
     if (matchOnChain) {
       console.log(`  Match ${fixtureId}: already on-chain (${matchPda.toBase58()})`);
     } else {
@@ -418,19 +414,23 @@ async function main(): Promise<void> {
     }
   }, 60_000);
 
-  const statusTimer = setInterval(() => {
+  const statusTimer = setInterval(async () => {
+    const solBalance = await rpcConnection.getBalance(anchorClient.walletPublicKey).catch(() => 0);
     wsServer.broadcast({
       type: "system_status",
       data: {
         clientCount: wsServer.clientCount,
         uptime: process.uptime(),
         activeFixtureCount: fixtureWatcher.getAllFixtures().length,
-        solBalance: 0,
+        solBalance,
       },
     });
   }, 30_000);
 
+  let shuttingDown = false;
   async function shutdown(): Promise<void> {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log("\nShutting down...");
     clearInterval(timeoutTimer);
     clearInterval(cronTimer);
@@ -439,6 +439,7 @@ async function main(): Promise<void> {
       marketTrigger.stopCronWindows(ms.fixtureId);
     }
     await txlineClient.stop();
+    await marketActions.drain();
     wsServer.stop();
     sseLogger.close();
     clobStore.close();
