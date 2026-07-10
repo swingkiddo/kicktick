@@ -42,8 +42,6 @@ export interface RoundTracker {
 export const MIN_MARKET_DURATION = 15;
 export const MAX_MARKET_DURATION = 300;
 export const DEFAULT_DEADLINE_SECONDS = 120;
-export const FINALITY_DELAY_SECONDS = 60;
-
 export const MARKET_TIMINGS: Record<string, { lock: number; deadline: number }> = {
   NextGoalSide:        { lock: 30, deadline: 90 },
   GoalInWindow:        { lock: 15, deadline: 300 },
@@ -157,15 +155,13 @@ export class MarketTrigger extends EventEmitter {
     for (const [, round] of f.rounds) {
       if (round.status !== "open") {
         if (round.status === "settling" && round.settledAt) {
-          if (now - round.settledAt >= FINALITY_DELAY_SECONDS * 1000) {
-            actions.push({
-              type: "confirm_round",
-              fixtureId,
-              matchPda: f.matchPda,
-              roundId: round.roundId,
-            });
-            round.status = "settled";
-          }
+          actions.push({
+            type: "confirm_round",
+            fixtureId,
+            matchPda: f.matchPda,
+            roundId: round.roundId,
+          });
+          round.status = "settled";
         }
         continue;
       }

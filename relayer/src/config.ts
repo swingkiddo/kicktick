@@ -28,12 +28,28 @@ export interface Config {
 }
 
 export function loadConfig(): Config {
+  let solanaPrivateKey = process.env.SOLANA_PRIVATE_KEY || "";
+  if (!solanaPrivateKey) {
+    const configuredPath = process.env.SOLANA_KEYPAIR_PATH || "~/.config/solana/id.json";
+    const keypairPath = configuredPath.startsWith("~/")
+      ? path.join(process.env.HOME || "/root", configuredPath.slice(2))
+      : configuredPath;
+    try {
+      const secret = JSON.parse(fs.readFileSync(keypairPath, "utf8")) as unknown;
+      if (!Array.isArray(secret) || secret.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+        throw new Error("keypair must be a byte array");
+      }
+      solanaPrivateKey = Buffer.from(secret).toString("hex");
+    } catch (error) {
+      throw new Error(`Unable to load Solana keypair from ${keypairPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   return {
     txlineJwt: process.env.TXLINE_JWT || "",
     txlineApiToken: process.env.TXLINE_API_TOKEN || "",
     txlineApiHost: process.env.TXLINE_API_HOST || constants.txlineApiHost,
     solanaRpcUrl: process.env.SOLANA_RPC_URL || constants.solanaRpcUrl,
-    solanaPrivateKey: process.env.SOLANA_PRIVATE_KEY || "",
+    solanaPrivateKey,
     kicktickProgramId: new PublicKey(
       process.env.KICKTICK_PROGRAM_ID || constants.kicktickProgramId
     ),

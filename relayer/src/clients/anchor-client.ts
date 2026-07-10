@@ -235,6 +235,14 @@ export class AnchorClient {
     ], programId);
   }
 
+  static marketTypeIndex(marketType: MarketType): number {
+    return [
+      "NextGoalSide", "GoalInWindow", "NextCorner", "CornerInWindow",
+      "NextYellowCard", "YellowCardInWindow", "RedCardInMatch",
+      "PenaltyShootoutShot", "PenaltyShot", "VARCheck",
+    ].indexOf(marketType);
+  }
+
   static deriveMarketVaultPda(market: PublicKey, programId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync([Buffer.from("market_vault"), market.toBuffer()], programId);
   }
@@ -325,6 +333,48 @@ export class AnchorClient {
         })
         .transaction(),
     );
+  }
+
+  async initMarket(
+    fixtureId: number,
+    marketType: MarketType,
+    marketSeq: number,
+    deadlineSeconds: number,
+    params: { participant?: number; period?: number; baselineA?: number; baselineB?: number } = {},
+  ): Promise<string> {
+    const typeIndex = AnchorClient.marketTypeIndex(marketType);
+    if (typeIndex < 0) throw new AnchorClientError(`unknown market type ${marketType}`);
+    const [market] = AnchorClient.deriveMarketPda(BigInt(fixtureId), typeIndex, BigInt(marketSeq), this.programId);
+    const [marketVault] = AnchorClient.deriveMarketVaultPda(market, this.programId);
+    return this.buildAndSend(
+      (this.program.methods as any).initMarket(
+        new BN(fixtureId),
+        { [camelCase(marketType)]: {} },
+        new BN(marketSeq),
+        {
+          participant: params.participant ?? 0,
+          period: params.period ?? 0,
+          baseline_a: params.baselineA ?? 0,
+          baseline_b: params.baselineB ?? 0,
+        },
+        new BN(deadlineSeconds),
+      ).accountsStrict({
+        authority: this.walletPublicKey,
+        config: AnchorClient.deriveConfigPda(this.programId)[0],
+        market,
+        marketVault,
+        systemProgram: SystemProgram.programId,
+      }).transaction(),
+    );
+  }
+
+  async lockMarket(marketAddress: string): Promise<string> {
+    const market = new PublicKey(marketAddress);
+    return this.buildAndSend((this.program.methods as any).lockMarket().accountsStrict({
+      authority: this.walletPublicKey,
+      config: AnchorClient.deriveConfigPda(this.programId)[0],
+      market,
+    }).transaction());
   }
 
   async settleRound(
