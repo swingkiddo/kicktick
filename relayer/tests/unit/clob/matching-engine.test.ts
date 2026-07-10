@@ -59,4 +59,25 @@ describe("CLOB matching engine", () => {
     expect(store.getOrder(buy.id)!.pending_quantity).to.equal(0n);
     expect(store.getFill(fill.id)!.status).to.equal("FAILED");
   });
+
+  it("allocates the next fill sequence after an already reserved fill", () => {
+    const { store, engine, record } = setup(2);
+
+    const maker1 = order({ side: "BUY", outcome_index: 0, price_bps: 5000, priority_at: 1 });
+    const taker1 = order({ side: "SELL", outcome_index: 0, price_bps: 4000, priority_at: 2 });
+    store.insertOrder(maker1);
+    store.insertOrder(taker1);
+
+    const first = engine.match(record, 1_900_000_000).fills[0];
+    expect(first.market_sequence).to.equal(0n);
+    store.reserveFill(first, new Map([[maker1.id, first.quantity], [taker1.id, first.quantity]]));
+
+    const maker2 = order({ side: "BUY", outcome_index: 0, price_bps: 5000, priority_at: 3 });
+    const taker2 = order({ side: "SELL", outcome_index: 0, price_bps: 4000, priority_at: 4 });
+    store.insertOrder(maker2);
+    store.insertOrder(taker2);
+
+    const second = engine.match(record, 1_900_000_000).fills[0];
+    expect(second.market_sequence).to.equal(1n);
+  });
 });

@@ -191,9 +191,7 @@ describe("Full lifecycle (20 bettors)", function () {
     expect(round.outcome).to.deep.equal({ yes: {} });
   });
 
-  it("confirms round after finality delay", async () => {
-    await sleep(61_000);
-
+  it("confirms round immediately after settle", async () => {
     await client.confirmRound(roundId, matchPda);
 
     const [roundPda] = AnchorClient.deriveRoundPda(matchPda, roundId, client.programId);

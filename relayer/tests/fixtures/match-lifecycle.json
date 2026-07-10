@@ -1,0 +1,27 @@
+{
+  "fullMatch": [
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"status\",\"gameState\":\"H1\",\"id\":1,\"seq\":100,\"ts\":1700000000,\"dataSoccer\":{\"StatusId\":2}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"goal\",\"participant\":1,\"gameState\":\"H1\",\"id\":2,\"seq\":101,\"ts\":1700000100,\"dataSoccer\":{\"GoalType\":\"Shot\"}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"yellow_card\",\"participant\":1,\"gameState\":\"H1\",\"id\":3,\"seq\":102,\"ts\":1700000200,\"dataSoccer\":{}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"corner\",\"participant\":2,\"gameState\":\"H1\",\"id\":4,\"seq\":103,\"ts\":1700000300,\"dataSoccer\":{}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"status\",\"gameState\":\"F\",\"id\":5,\"seq\":104,\"ts\":1700000400,\"dataSoccer\":{\"StatusId\":5}}"
+  ],
+  "goalTimeout": [
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"status\",\"gameState\":\"H1\",\"id\":10,\"seq\":200,\"ts\":1700001000,\"dataSoccer\":{\"StatusId\":2}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"goal\",\"participant\":1,\"gameState\":\"H1\",\"id\":11,\"seq\":201,\"ts\":1700001100,\"dataSoccer\":{\"GoalType\":\"Shot\"}}"
+  ],
+  "cronWindows": [
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"goal\",\"participant\":1,\"gameState\":\"H1\",\"id\":20,\"seq\":301,\"ts\":1700002000,\"dataSoccer\":{\"GoalType\":\"Shot\"}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"goal\",\"participant\":1,\"gameState\":\"H1\",\"id\":21,\"seq\":302,\"ts\":1700002100,\"dataSoccer\":{\"GoalType\":\"Shot\"}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"goal\",\"participant\":1,\"gameState\":\"H1\",\"id\":22,\"seq\":303,\"ts\":1700002200,\"dataSoccer\":{\"GoalType\":\"Shot\"}}"
+  ],
+  "penaltyShootout": [
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"status\",\"gameState\":\"PE\",\"id\":30,\"seq\":400,\"ts\":1700003000,\"dataSoccer\":{\"StatusId\":12}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"penalty_outcome\",\"participant\":1,\"gameState\":\"PE\",\"id\":31,\"seq\":42,\"ts\":1700003100,\"dataSoccer\":{\"Outcome\":\"Scored\"}}"
+  ],
+  "mixedCleanup": [
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"status\",\"gameState\":\"H1\",\"id\":40,\"seq\":500,\"ts\":1700004000,\"dataSoccer\":{\"StatusId\":2}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"var\",\"participant\":1,\"gameState\":\"H1\",\"id\":41,\"seq\":501,\"ts\":1700004100,\"dataSoccer\":{\"Type\":\"RedCard\"}}",
+    "{\"fixtureId\":9001,\"competitionId\":72,\"action\":\"status\",\"gameState\":\"F\",\"id\":42,\"seq\":502,\"ts\":1700004200,\"dataSoccer\":{\"StatusId\":5}}"
+  ]
+}

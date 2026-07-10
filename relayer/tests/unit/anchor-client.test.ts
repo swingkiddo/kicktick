@@ -49,6 +49,22 @@ function makeClient(overrides?: {
         },
       }),
     }),
+    initMarket: (...args: any[]) => ({
+      accountsStrict: (accts: any) => ({
+        transaction: () => {
+          capturedCalls.push({ method: "initMarket", args, accounts: accts });
+          return { instructions: [] };
+        },
+      }),
+    }),
+    lockMarket: (..._args: any[]) => ({
+      accountsStrict: (accts: any) => ({
+        transaction: () => {
+          capturedCalls.push({ method: "lockMarket", accounts: accts });
+          return { instructions: [] };
+        },
+      }),
+    }),
     settleOffchainRound: (...args: any[]) => ({
       accountsStrict: (accts: any) => ({
         transaction: () => {
@@ -244,6 +260,73 @@ describe("AnchorClient – openRound", () => {
       await client.openRound(1, mt, 60, 120, matchPda);
       expect(capturedEnum).to.deep.equal({ [camelCase(mt)]: {} });
     }
+  });
+});
+
+describe("AnchorClient – initMarket", () => {
+  it("calls program.methods.initMarket with snake_case market params and derived accounts", async () => {
+    let capturedArgs: any[] = [];
+    let capturedAccounts: any = {};
+
+    const client = makeClient({
+      methodsOverride: {
+        initMarket: (...args: any[]) => {
+          capturedArgs = args;
+          return {
+            accountsStrict: (accts: any) => {
+              capturedAccounts = accts;
+              return { transaction: () => ({ instructions: [] }) };
+            },
+          };
+        },
+      },
+    });
+
+    const fixtureId = 1234;
+    const marketType: MarketType = "VARCheck";
+    const marketSeq = 9;
+    const deadlineSeconds = 180;
+
+    await client.initMarket(fixtureId, marketType, marketSeq, deadlineSeconds, {
+      participant: 2,
+      period: 1,
+      baselineA: 7,
+      baselineB: 3,
+    });
+
+    expect(capturedArgs).to.have.length(5);
+    expect(capturedArgs[0]).to.be.instanceOf(BN);
+    expect(capturedArgs[0].toNumber()).to.equal(fixtureId);
+    expect(capturedArgs[1]).to.deep.equal({ varCheck: {} });
+    expect(capturedArgs[2]).to.be.instanceOf(BN);
+    expect(capturedArgs[2].toNumber()).to.equal(marketSeq);
+    expect(capturedArgs[3]).to.deep.equal({
+      participant: 2,
+      period: 1,
+      baseline_a: 7,
+      baseline_b: 3,
+    });
+    expect(capturedArgs[4]).to.be.instanceOf(BN);
+    expect(capturedArgs[4].toNumber()).to.equal(deadlineSeconds);
+
+    const [marketPda] = AnchorClient.deriveMarketPda(
+      BigInt(fixtureId),
+      AnchorClient.marketTypeIndex(marketType),
+      BigInt(marketSeq),
+      PROGRAM_ID,
+    );
+    const [marketVaultPda] = AnchorClient.deriveMarketVaultPda(marketPda, PROGRAM_ID);
+    const [configPda] = AnchorClient.deriveConfigPda(PROGRAM_ID);
+
+    expect(capturedAccounts.authority.toBase58()).to.equal(
+      (client as any).provider.wallet.publicKey.toBase58(),
+    );
+    expect(capturedAccounts.config.toBase58()).to.equal(configPda.toBase58());
+    expect(capturedAccounts.market.toBase58()).to.equal(marketPda.toBase58());
+    expect(capturedAccounts.marketVault.toBase58()).to.equal(marketVaultPda.toBase58());
+    expect(capturedAccounts.systemProgram.toBase58()).to.equal(
+      SystemProgram.programId.toBase58(),
+    );
   });
 });
 
@@ -503,6 +586,33 @@ describe("AnchorClient – cancelRound", () => {
     expect(capturedAccounts.config.toBase58()).to.equal(configPda.toBase58());
     expect(capturedAccounts.matchPda.toBase58()).to.equal(matchPda.toBase58());
     expect(capturedAccounts.round.toBase58()).to.equal(roundPda.toBase58());
+  });
+});
+
+describe("AnchorClient – lockMarket", () => {
+  it("passes config and market accounts", async () => {
+    let capturedAccounts: any;
+
+    const client = makeClient({
+      methodsOverride: {
+        lockMarket: () => ({
+          accountsStrict: (accts: any) => {
+            capturedAccounts = accts;
+            return { transaction: () => ({ instructions: [] }) };
+          },
+        }),
+      },
+    });
+
+    const market = Keypair.generate().publicKey;
+    await client.lockMarket(market.toBase58());
+
+    const [configPda] = AnchorClient.deriveConfigPda(PROGRAM_ID);
+    expect(capturedAccounts.authority.toBase58()).to.equal(
+      (client as any).provider.wallet.publicKey.toBase58(),
+    );
+    expect(capturedAccounts.config.toBase58()).to.equal(configPda.toBase58());
+    expect(capturedAccounts.market.toBase58()).to.equal(market.toBase58());
   });
 });
 

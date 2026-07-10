@@ -155,9 +155,7 @@ describe("AnchorClient Integration (localnet)", function () {
   describe("confirmRound", () => {
     const roundId = 1;
 
-    it("confirms round after finality delay", async () => {
-      await sleep(61_000);
-
+    it("confirms round immediately after settle", async () => {
       await client.confirmRound(roundId, matchPda);
 
       const [roundPda] = AnchorClient.deriveRoundPda(matchPda, roundId, client.programId);
@@ -201,8 +199,6 @@ describe("AnchorClient Integration (localnet)", function () {
       const roundSettled = await client.fetchRound(roundPda);
       expect(roundSettled.status).to.deep.equal({ resolvedPending: {} });
       expect(roundSettled.winner).to.equal(1);
-
-      await sleep(61_000);
 
       await client.confirmRound(roundId, matchPda);
 

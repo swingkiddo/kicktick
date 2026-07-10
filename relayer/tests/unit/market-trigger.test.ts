@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { PublicKey } from "@solana/web3.js";
 import { DEFAULT_KICKTICK_PROGRAM_ID } from "../../src/config";
-import { MarketTrigger, TriggerAction, FINALITY_DELAY_SECONDS, MARKET_TIMINGS } from "../../src/market/triggers";
+import { MarketTrigger, TriggerAction, MARKET_TIMINGS } from "../../src/market/triggers";
 import {
   SoccerAction,
   StatusId,
@@ -519,7 +519,7 @@ describe("MarketTrigger", () => {
       expect((settle as any).settlementSeq).to.equal(0);
     });
 
-    it("settling round after FINALITY_DELAY_SECONDS → confirm_round", (done) => {
+    it("settling round → immediate confirm_round", () => {
       const goalEvt: GoalEvent = { action: SoccerAction.Goal, participant: 1, goalType: GoalType.Shot };
       trigger.processEvent(goalEvt, FIXTURE_ID, state);
 
@@ -530,22 +530,9 @@ describe("MarketTrigger", () => {
       const timeoutActions = trigger.checkTimeouts(FIXTURE_ID);
       expect(timeoutActions.find((a) => a.type === "settle_onchain")).to.exist;
 
-      const settling = trigger.getActiveRounds(FIXTURE_ID);
-      expect(settling).to.have.length(0);
-
-      setTimeout(() => {
-        const rounds = (trigger as any).fixtures.get(FIXTURE_ID).rounds;
-        for (const [, r] of rounds) {
-          if (r.status === "settling") {
-            r.settledAt = Date.now() - (FINALITY_DELAY_SECONDS + 1) * 1000;
-          }
-        }
-
-        const confirmActions = trigger.checkTimeouts(FIXTURE_ID);
-        const confirm = confirmActions.find((a) => a.type === "confirm_round");
-        expect(confirm).to.exist;
-        done();
-      }, 10);
+      const confirmActions = trigger.checkTimeouts(FIXTURE_ID);
+      const confirm = confirmActions.find((a) => a.type === "confirm_round");
+      expect(confirm).to.exist;
     });
 
     it("returns empty for unknown fixtureId", () => {
