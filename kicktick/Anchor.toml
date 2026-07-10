@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-kicktick = "DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ"
+kicktick = "HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg"
 
 [programs.localnet]
 kicktick = "CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc"
@@ -15,6 +15,6 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "npm run test"
 
 [hooks]

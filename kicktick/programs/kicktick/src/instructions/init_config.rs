@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::state::*;
 use crate::constants::*;
+use crate::state::*;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct InitConfig<'info> {
@@ -22,9 +22,13 @@ pub struct InitConfig<'info> {
 pub fn handler(ctx: Context<InitConfig>) -> Result<()> {
     let config = &mut ctx.accounts.config;
     config.admin = ctx.accounts.admin.key();
+    config.relayer = ctx.accounts.admin.key();
     config.txoracle_program_id = TXORACLE_PROGRAM_ID;
-    config.daily_scores_merkle_roots = Pubkey::default();
-    config.finality_delay = FINALITY_DELAY_SECONDS;
+    config.daily_scores_merkle_roots = Pubkey::find_program_address(
+        &[b"daily_scores_merkle_roots"],
+        &TXORACLE_PROGRAM_ID,
+    )
+    .0;
     config.min_liquidity = MIN_ROUND_LIQUIDITY;
     config.bump = ctx.bumps.config;
 

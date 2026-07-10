@@ -1,6 +1,5 @@
 // kicktick/programs/kicktick/src/lib.rs
-// KickTick: Sub-minute micro prediction markets on Solana
-// Phase 1 — Anchor Program: Core (Match/Round/Position/Settlement)
+// KickTick: in-play micro prediction markets on Solana
 
 #![allow(unexpected_cfgs)]
 
@@ -8,133 +7,148 @@ use anchor_lang::prelude::*;
 
 pub mod constants;
 pub mod errors;
-pub mod state;
 pub mod instructions;
+pub mod state;
 
-use state::*;
 use instructions::*;
+use state::*;
 
-declare_id!("DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ");
+declare_id!("HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg");
 
 #[program]
 pub mod kicktick {
     use super::*;
 
-    // ===== 0.1 Config / Admin =====
+    // ===== Config =====
 
-    /// Initialize global Config PDA (one-time)
-    pub fn init_config(
-        ctx: Context<InitConfig>,
-    ) -> Result<()> {
+    pub fn init_config(ctx: Context<InitConfig>) -> Result<()> {
         instructions::init_config::handler(ctx)
     }
 
-    // ===== 1.2.1 Match Management =====
+    pub fn set_relayer(ctx: Context<SetRelayer>, relayer: Pubkey) -> Result<()> {
+        instructions::market::set_relayer_handler(ctx, relayer)
+    }
 
-    pub fn init_match(
-        ctx: Context<InitMatch>,
+    // ===== User Balance =====
+
+    pub fn init_user(ctx: Context<InitUser>) -> Result<()> {
+        instructions::user::init_user_handler(ctx)
+    }
+
+    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+        instructions::user::deposit_handler(ctx, amount)
+    }
+
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+        instructions::user::withdraw_handler(ctx, amount)
+    }
+
+    // ===== Market Lifecycle =====
+
+    pub fn init_market(
+        ctx: Context<InitMarket>,
         fixture_id: i64,
-        home_team: String,
-        away_team: String,
-    ) -> Result<()> {
-        instructions::init_match::handler(ctx, fixture_id, home_team, away_team)
-    }
-
-    // ===== Sponsor =====
-
-    pub fn fund_sponsor(
-        ctx: Context<FundSponsor>,
-        amount: u64,
-    ) -> Result<()> {
-        instructions::fund_sponsor::fund_sponsor_handler(ctx, amount)
-    }
-
-    pub fn sponsor_round(
-        ctx: Context<SponsorRound>,
-        amount: u64,
-    ) -> Result<()> {
-        instructions::fund_sponsor::sponsor_round_handler(ctx, amount)
-    }
-
-    // ===== 1.2.2 Round Management =====
-
-    pub fn open_round(
-        ctx: Context<OpenRound>,
-        round_id: u64,
         market_type: MarketType,
-        lock_seconds: i64,
+        market_seq: u64,
+        params: MarketParams,
         deadline_seconds: i64,
     ) -> Result<()> {
-        instructions::open_round::handler(ctx, round_id, market_type, lock_seconds, deadline_seconds)
+        instructions::market::init_market_handler(
+            ctx,
+            fixture_id,
+            market_type,
+            market_seq,
+            params,
+            deadline_seconds,
+        )
     }
 
-    // ===== 1.2.3 Betting =====
-
-    pub fn place_bet(
-        ctx: Context<PlaceBet>,
-        fixture_id: i64,
-        round_id: u64,
-        side: u8,
-        amount: u64,
-    ) -> Result<()> {
-        instructions::place_bet::handler(ctx, fixture_id, round_id, side, amount)
+    pub fn lock_market(ctx: Context<LockMarket>) -> Result<()> {
+        instructions::market::lock_market_handler(ctx)
     }
 
-    // ===== 1.3 Settlement =====
+    pub fn resolve_market_offchain(ctx: Context<ResolveMarketOffchain>, winner: u8) -> Result<()> {
+        instructions::market::resolve_market_offchain_handler(ctx, winner)
+    }
 
-    /// Settle a round using CPI validate_stat against txoracle
-    pub fn settle_round(
-        ctx: Context<SettleRound>,
+    pub fn resolve_market_with_proof(
+        ctx: Context<ResolveMarketWithProof>,
         args: ValidateStatArgs,
     ) -> Result<()> {
-        instructions::settle_round::handler(ctx, args)
+        instructions::oracle::resolve_market_with_proof_handler(ctx, args)
     }
 
-    /// Settle an off-chain market type (PenaltyShot, VARCheck)
-    pub fn settle_offchain_round(
-        ctx: Context<SettleOffchainRound>,
-        outcome: RoundOutcome,
-        winner: u8,
-    ) -> Result<()> {
-        instructions::settle_offchain_round::handler(ctx, outcome, winner)
+    pub fn confirm_market(ctx: Context<ConfirmMarket>) -> Result<()> {
+        instructions::market::confirm_market_handler(ctx)
     }
 
-    /// Confirm a settled round after finality delay
-    pub fn confirm_round(
-        ctx: Context<ConfirmRound>,
-    ) -> Result<()> {
-        instructions::confirm_round::handler(ctx)
+    pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
+        instructions::market::void_market_handler(ctx)
     }
 
-    /// Claim winnings for a winning position
-    pub fn claim_winnings(
-        ctx: Context<ClaimWinnings>,
-        fixture_id: i64,
-        round_id: u64,
+    // ===== Trading =====
+
+    pub fn settle_complete_set_binary(
+        ctx: Context<SettleCompleteSetBinary>,
+        fill_seq: u64,
+        price_0_bps: u16,
+        price_1_bps: u16,
+        quantity: u64,
     ) -> Result<()> {
-        instructions::claim::claim_winnings_handler(ctx, fixture_id, round_id)
+        instructions::trade::settle_complete_set_binary_handler(
+            ctx,
+            fill_seq,
+            price_0_bps,
+            price_1_bps,
+            quantity,
+        )
     }
 
-    /// Refund a cancelled/voided round position
-    pub fn refund_bet(
-        ctx: Context<RefundBet>,
-        fixture_id: i64,
-        round_id: u64,
+    pub fn settle_complete_set_ternary(
+        ctx: Context<SettleCompleteSetTernary>,
+        fill_seq: u64,
+        price_0_bps: u16,
+        price_1_bps: u16,
+        price_2_bps: u16,
+        quantity: u64,
     ) -> Result<()> {
-        instructions::claim::refund_bet_handler(ctx, fixture_id, round_id)
+        instructions::trade::settle_complete_set_ternary_handler(
+            ctx,
+            fill_seq,
+            price_0_bps,
+            price_1_bps,
+            price_2_bps,
+            quantity,
+        )
     }
 
-    /// Cancel an open round
-    pub fn cancel_round(
-        ctx: Context<CancelRound>,
+    pub fn settle_share_trade(
+        ctx: Context<SettleShareTrade>,
+        fill_seq: u64,
+        outcome_index: u8,
+        price_bps: u16,
+        quantity: u64,
     ) -> Result<()> {
-        instructions::cancel_round::cancel_round_handler(ctx)
+        instructions::trade::settle_share_trade_handler(
+            ctx,
+            fill_seq,
+            outcome_index,
+            price_bps,
+            quantity,
+        )
     }
 
-    /// Challenge a settlement for equivocation
-    pub fn challenge_equivocation(
-        ctx: Context<ChallengeEquivocation>,
-    ) -> Result<()> {
-        instructions::cancel_round::challenge_equivocation_handler(ctx)
+    // ===== Redemption =====
+
+    pub fn claim(ctx: Context<Claim>) -> Result<()> {
+        instructions::redeem::claim_handler(ctx)
+    }
+
+    pub fn cleanup_position(ctx: Context<CleanupPosition>) -> Result<()> {
+        instructions::redeem::cleanup_position_handler(ctx)
+    }
+
+    pub fn close_market_vault(ctx: Context<CloseMarketVault>) -> Result<()> {
+        instructions::redeem::close_market_vault_handler(ctx)
     }
 }

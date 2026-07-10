@@ -3,23 +3,27 @@ use anchor_lang::prelude::*;
 // TxODDS Oracle program (devnet)
 pub const TXORACLE_PROGRAM_ID: Pubkey = pubkey!("6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J");
 
-
 // PDA seed prefixes
 pub const SEED_CONFIG: &[u8] = b"config";
-pub const SEED_MATCH: &[u8] = b"match";
-pub const SEED_MATCH_VAULT: &[u8] = b"match_vault";
-pub const SEED_ROUND: &[u8] = b"round";
+pub const SEED_USER: &[u8] = b"user";
+pub const SEED_USER_VAULT: &[u8] = b"user_vault";
+pub const SEED_MARKET: &[u8] = b"market";
+pub const SEED_MARKET_VAULT: &[u8] = b"market_vault";
 pub const SEED_POSITION: &[u8] = b"position";
-pub const SEED_SPONSOR_VAULT: &[u8] = b"sponsor_vault";
 
 // Market duration limits
 pub const MIN_MARKET_DURATION: i64 = 15;
 pub const MAX_MARKET_DURATION: i64 = 300;
+pub const MAX_OUTCOMES: usize = 3;
+pub const PRICE_SCALE_BPS: u16 = 10_000;
+pub const PRICE_TICK_BPS: u16 = 100;
+pub const MIN_PRICE_BPS: u16 = 100;
+pub const MAX_PRICE_BPS: u16 = 9_900;
+pub const MIN_TRADE_QUANTITY: u64 = 100;
 
 // Round timing defaults
 pub const DEFAULT_LOCK_SECONDS: i64 = 15;
 pub const DEFAULT_DEADLINE_SECONDS: i64 = 120;
-pub const FINALITY_DELAY_SECONDS: i64 = 60;
 
 // Minimum liquidity required for a round
 pub const MIN_ROUND_LIQUIDITY: u64 = 10_000_000; // 0.01 SOL in lamports
@@ -36,6 +40,8 @@ pub const STATKEY_P1_RC: u32 = 5;
 pub const STATKEY_P2_RC: u32 = 6;
 pub const STATKEY_P1_CORNERS: u32 = 7;
 pub const STATKEY_P2_CORNERS: u32 = 8;
+pub const STATKEY_P1_PE: u32 = 5001;
+pub const STATKEY_P2_PE: u32 = 5002;
 
 // Period modifiers
 pub const PERIOD_H1: i32 = 0;

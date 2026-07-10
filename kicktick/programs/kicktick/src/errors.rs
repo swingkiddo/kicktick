@@ -37,6 +37,38 @@ pub enum KickTickError {
     RoundAlreadyConfirmed,
     #[msg("Invalid market type")]
     InvalidMarketType,
+    #[msg("Invalid outcome count")]
+    InvalidOutcomeCount,
+    #[msg("Invalid outcome index")]
+    InvalidOutcomeIndex,
+    #[msg("Invalid price")]
+    InvalidPrice,
+    #[msg("Complete-set prices must sum to 10000 basis points")]
+    InvalidPriceSum,
+    #[msg("Market is not open")]
+    MarketNotOpen,
+    #[msg("Market is not locked")]
+    MarketNotLocked,
+    #[msg("Market is not resolved")]
+    MarketNotResolved,
+    #[msg("Market is not in a terminal state")]
+    MarketNotTerminal,
+    #[msg("Market may only be resolved after finality confirmation")]
+    MarketNotConfirmed,
+    #[msg("Only the configured relayer can call this instruction")]
+    UnauthorizedRelayer,
+    #[msg("Fill sequence is not the market's next sequence")]
+    InvalidFillSequence,
+    #[msg("Price is not on the required tick")]
+    InvalidPriceTick,
+    #[msg("Trade quantity is below the minimum")]
+    QuantityTooSmall,
+    #[msg("Void payout vector is invalid")]
+    InvalidVoidPayout,
+    #[msg("This market must be resolved with TxOracle proof")]
+    OracleResolutionRequired,
+    #[msg("This market may only be resolved off-chain")]
+    OffchainResolutionRequired,
     #[msg("Market type not supported for on-chain settlement")]
     MarketTypeNotSupported,
 
@@ -47,14 +79,16 @@ pub enum KickTickError {
     DeadlinePassed,
     #[msg("Round still active")]
     RoundStillActive,
-    #[msg("Finality delay not met")]
-    FinalityDelayNotMet,
 
     // Betting
     #[msg("Bet amount must be greater than zero")]
     ZeroAmount,
     #[msg("Invalid bet side")]
     InvalidSide,
+    #[msg("Insufficient available balance")]
+    InsufficientBalance,
+    #[msg("Insufficient shares")]
+    InsufficientShares,
 
     // Sponsor / Liquidity
     #[msg("Insufficient sponsor liquidity")]

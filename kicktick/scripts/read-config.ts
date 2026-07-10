@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const CONFIG_PDA = new PublicKey('BjQfSFFb2QFnduUCjekKCM7s8J97cnKNhpLaBYyg1RY7');
-const PROGRAM_ID = new PublicKey('DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ');
+const PROGRAM_ID = new PublicKey('HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg');
 
 function bn(val: any): number {
   return (val as BN).toNumber();

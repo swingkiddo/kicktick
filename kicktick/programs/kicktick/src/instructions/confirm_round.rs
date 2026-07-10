@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
-use crate::state::*;
 use crate::constants::*;
 use crate::errors::KickTickError;
+use crate::state::*;
 
 #[derive(Accounts)]
 pub struct ConfirmRound<'info> {
@@ -26,13 +26,9 @@ pub struct ConfirmRound<'info> {
 pub fn handler(ctx: Context<ConfirmRound>) -> Result<()> {
     let round = &mut ctx.accounts.round;
 
-    require!(round.status == RoundStatus::ResolvedPending, KickTickError::RoundNotSettled);
-
-    // Check finality delay
-    let clock = Clock::get()?;
     require!(
-        clock.unix_timestamp >= round.settle_at.checked_add(FINALITY_DELAY_SECONDS).ok_or(KickTickError::Overflow)?,
-        KickTickError::FinalityDelayNotMet
+        round.status == RoundStatus::ResolvedPending,
+        KickTickError::RoundNotSettled
     );
 
     round.status = RoundStatus::Settled;
