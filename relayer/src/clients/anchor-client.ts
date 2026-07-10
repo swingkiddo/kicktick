@@ -29,7 +29,7 @@ export type MarketType =
   | "PenaltyShot"
   | "VARCheck";
 
-export type RoundOutcome =
+export type MarketOutcome =
   | "None"
   | "Yes"
   | "No"
@@ -146,7 +146,7 @@ const ENUM_VARIANTS: Record<string, string> = {
   // BinaryExpression
   Add: "add",
   Subtract: "subtract",
-  // RoundOutcome
+  // MarketOutcome
   None: "none",
   Yes: "yes",
   No: "no",
@@ -172,7 +172,6 @@ function toLeBytes64(n: number): Buffer {
 type Accounts = {
   config: { fetch(address: PublicKey): Promise<any> };
   match: { fetch(address: PublicKey): Promise<any> };
-  round: { fetch(address: PublicKey): Promise<any> };
   position: { fetch(address: PublicKey): Promise<any> };
   sponsorVault: { fetch(address: PublicKey): Promise<any> };
 };
@@ -215,14 +214,6 @@ export class AnchorClient {
 
   static deriveMatchPda(fixtureId: number, programId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync([Buffer.from("match"), toLeBytes64(fixtureId)], programId);
-  }
-
-  static deriveRoundPda(
-    matchPda: PublicKey,
-    roundId: number,
-    programId: PublicKey,
-  ): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync([Buffer.from("round"), matchPda.toBuffer(), toLeBytes64(roundId)], programId);
   }
 
   static deriveConfigPda(programId: PublicKey): [PublicKey, number] {
@@ -304,37 +295,6 @@ export class AnchorClient {
 
   // ── Instruction builders ──
 
-  async openRound(
-    roundId: number,
-    marketType: MarketType,
-    lockSeconds: number,
-    deadlineSeconds: number,
-    matchPda: PublicKey,
-  ): Promise<string> {
-    const [roundPda] = AnchorClient.deriveRoundPda(
-      matchPda,
-      roundId,
-      this.programId,
-    );
-
-    return this.buildAndSend(
-      this.program.methods
-        .openRound(
-          new BN(roundId),
-          { [camelCase(marketType)]: {} },
-          new BN(lockSeconds),
-          new BN(deadlineSeconds),
-        )
-        .accountsStrict({
-          authority: this.walletPublicKey,
-          matchPda,
-          round: roundPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction(),
-    );
-  }
-
   async initMarket(
     fixtureId: number,
     marketType: MarketType,
@@ -377,21 +337,12 @@ export class AnchorClient {
     }).transaction());
   }
 
-  async settleRound(
-    roundId: number,
-    matchPda: PublicKey,
-    proofArgs: SettleProofArgs,
-  ): Promise<string> {
-    const [roundPda] = AnchorClient.deriveRoundPda(
-      matchPda,
-      roundId,
-      this.programId,
-    );
+  async resolveMarketWithProof(marketAddress: string, proofArgs: SettleProofArgs): Promise<string> {
+    const market = new PublicKey(marketAddress);
     const [dailyScoresRootsPda] = AnchorClient.deriveDailyScoresRootsPda(
       this.config.txoracleProgramId,
     );
 
-    // Build ValidateStatArgs struct for Anchor encoding
     const args = {
       ts: new BN(proofArgs.ts),
       fixture_summary: {
@@ -403,14 +354,8 @@ export class AnchorClient {
         },
         events_sub_tree_root: proofArgs.fixtureSummary.eventsSubTreeRoot,
       },
-      fixture_proof: proofArgs.fixtureProof.map((n) => ({
-        hash: n.hash,
-        is_right_sibling: n.isRightSibling,
-      })),
-      main_tree_proof: proofArgs.mainTreeProof.map((n) => ({
-        hash: n.hash,
-        is_right_sibling: n.isRightSibling,
-      })),
+      fixture_proof: proofArgs.fixtureProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
+      main_tree_proof: proofArgs.mainTreeProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
       predicate: {
         threshold: new BN(proofArgs.predicate.threshold),
         comparison: { [camelCase(proofArgs.predicate.comparison)]: {} },
@@ -422,111 +367,47 @@ export class AnchorClient {
           period: new BN(proofArgs.statA.statToProve.period),
         },
         event_stat_root: proofArgs.statA.eventStatRoot,
-        stat_proof: proofArgs.statA.statProof.map((n) => ({
-          hash: n.hash,
-          is_right_sibling: n.isRightSibling,
-        })),
+        stat_proof: proofArgs.statA.statProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
       },
-      stat_b: proofArgs.statB
-        ? {
-            stat_to_prove: {
-              key: new BN(proofArgs.statB.statToProve.key),
-              value: new BN(proofArgs.statB.statToProve.value),
-              period: new BN(proofArgs.statB.statToProve.period),
-            },
-            event_stat_root: proofArgs.statB.eventStatRoot,
-            stat_proof: proofArgs.statB.statProof.map((n) => ({
-              hash: n.hash,
-              is_right_sibling: n.isRightSibling,
-            })),
-          }
-        : null,
+      stat_b: proofArgs.statB ? {
+        stat_to_prove: {
+          key: new BN(proofArgs.statB.statToProve.key),
+          value: new BN(proofArgs.statB.statToProve.value),
+          period: new BN(proofArgs.statB.statToProve.period),
+        },
+        event_stat_root: proofArgs.statB.eventStatRoot,
+        stat_proof: proofArgs.statB.statProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
+      } : null,
       op: proofArgs.op ? { [camelCase(proofArgs.op)]: {} } : null,
     };
 
     return this.buildAndSend(
-      this.program.methods
-        .settleRound(args)
-        .accountsStrict({
-          caller: this.walletPublicKey,
-          matchPda,
-          round: roundPda,
-          dailyScoresMerkleRoots: dailyScoresRootsPda,
-          txoracleProgram: this.config.txoracleProgramId,
-        })
-        .transaction(),
+      (this.program.methods as any).resolveMarketWithProof(args).accountsStrict({
+        relayer: this.walletPublicKey,
+        config: AnchorClient.deriveConfigPda(this.programId)[0],
+        market,
+        dailyScoresMerkleRoots: dailyScoresRootsPda,
+        txoracleProgram: this.config.txoracleProgramId,
+      }).transaction(),
       1_400_000,
     );
   }
 
-  async settleOffchainRound(
-    roundId: number,
-    matchPda: PublicKey,
-    outcome: RoundOutcome,
-    winner: number,
-  ): Promise<string> {
-    const [roundPda] = AnchorClient.deriveRoundPda(
-      matchPda,
-      roundId,
-      this.programId,
-    );
-
-    return this.buildAndSend(
-      this.program.methods
-        .settleOffchainRound({ [camelCase(outcome)]: {} }, new BN(winner))
-        .accountsStrict({
-          caller: this.walletPublicKey,
-          matchPda,
-          round: roundPda,
-        })
-        .transaction(),
-    );
+  async resolveMarketOffchain(marketAddress: string, winner: number): Promise<string> {
+    const market = new PublicKey(marketAddress);
+    return this.buildAndSend((this.program.methods as any).resolveMarketOffchain(winner).accountsStrict({
+      relayer: this.walletPublicKey,
+      config: AnchorClient.deriveConfigPda(this.programId)[0],
+      market,
+    }).transaction());
   }
 
-  async confirmRound(
-    roundId: number,
-    matchPda: PublicKey,
-  ): Promise<string> {
-    const [roundPda] = AnchorClient.deriveRoundPda(
-      matchPda,
-      roundId,
-      this.programId,
-    );
-
-    return this.buildAndSend(
-      this.program.methods
-        .confirmRound()
-        .accountsStrict({
-          caller: this.walletPublicKey,
-          matchPda,
-          round: roundPda,
-        })
-        .transaction(),
-    );
-  }
-
-  async cancelRound(
-    roundId: number,
-    matchPda: PublicKey,
-  ): Promise<string> {
-    const [roundPda] = AnchorClient.deriveRoundPda(
-      matchPda,
-      roundId,
-      this.programId,
-    );
-    const [configPda] = AnchorClient.deriveConfigPda(this.programId);
-
-    return this.buildAndSend(
-      this.program.methods
-        .cancelRound()
-        .accountsStrict({
-          caller: this.walletPublicKey,
-          config: configPda,
-          matchPda,
-          round: roundPda,
-        })
-        .transaction(),
-    );
+  async confirmMarket(marketAddress: string): Promise<string> {
+    const market = new PublicKey(marketAddress);
+    return this.buildAndSend((this.program.methods as any).confirmMarket().accountsStrict({
+      config: AnchorClient.deriveConfigPda(this.programId)[0],
+      market,
+    }).transaction());
   }
 
   async initConfig(): Promise<string> {
@@ -569,102 +450,6 @@ export class AnchorClient {
     );
 
     return { sig, matchPda, vaultPda };
-  }
-
-  async placeBet(
-    fixtureId: number,
-    roundId: number,
-    side: number,
-    amount: number,
-    matchPda: PublicKey,
-    bettor?: Keypair,
-  ): Promise<string> {
-    const [roundPda] = AnchorClient.deriveRoundPda(
-      matchPda,
-      roundId,
-      this.programId,
-    );
-    const [vaultPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("match_vault"), matchPda.toBuffer()],
-      this.programId,
-    );
-    const bettorPub = bettor ? bettor.publicKey : this.walletPublicKey;
-    const [positionPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("position"),
-        new BN(fixtureId).toArrayLike(Buffer, "le", 8),
-        new BN(roundId).toArrayLike(Buffer, "le", 8),
-        bettorPub.toBuffer(),
-      ],
-      this.programId,
-    );
-
-    const signers = bettor ? [bettor] : [];
-    return this.buildAndSend(
-      this.program.methods
-        .placeBet(new BN(fixtureId), new BN(roundId), side, new BN(amount))
-        .accountsStrict({
-          bettor: bettorPub,
-          matchPda,
-          matchVault: vaultPda,
-          round: roundPda,
-          position: positionPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction(),
-      0,
-      signers,
-    );
-  }
-
-  async claimWinnings(
-    fixtureId: number,
-    roundId: number,
-    matchPda: PublicKey,
-    winnerKeypair?: Keypair,
-  ): Promise<string> {
-    const [roundPda] = AnchorClient.deriveRoundPda(
-      matchPda,
-      roundId,
-      this.programId,
-    );
-    const winnerPub = winnerKeypair
-      ? winnerKeypair.publicKey
-      : this.walletPublicKey;
-    const [positionPda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("position"),
-        new BN(fixtureId).toArrayLike(Buffer, "le", 8),
-        new BN(roundId).toArrayLike(Buffer, "le", 8),
-        winnerPub.toBuffer(),
-      ],
-      this.programId,
-    );
-    const [vaultPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("match_vault"), matchPda.toBuffer()],
-      this.programId,
-    );
-
-    const signers = winnerKeypair ? [winnerKeypair] : [];
-    return this.buildAndSend(
-      this.program.methods
-        .claimWinnings(new BN(fixtureId), new BN(roundId))
-        .accountsStrict({
-          winner: winnerPub,
-          matchPda,
-          round: roundPda,
-          position: positionPda,
-          matchVault: vaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction(),
-      0,
-      signers,
-    );
-  }
-
-  async fetchRound(roundPda: PublicKey): Promise<any> {
-    return (this.program.account as Accounts).round.fetch(roundPda);
   }
 
   async fetchMatch(matchPda: PublicKey): Promise<any> {
