@@ -43,3 +43,7 @@ kicktick/test-ledger
 test_scripts
 keypair.json
 test-ledger/
+relayer/data/
+frontend/public/idl/kicktick.json
+relayer/scripts
+kicktick/scripts/wallets/
