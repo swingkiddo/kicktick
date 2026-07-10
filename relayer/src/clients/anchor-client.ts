@@ -474,6 +474,16 @@ export class AnchorClient {
     return state;
   }
 
+  async getMarketParams(marketAddress: string): Promise<{ period: number; baselineA: number; baselineB: number }> {
+    const account = await (this.program.account as any).market.fetch(new PublicKey(marketAddress));
+    const params = account.params;
+    return {
+      period: Number(params.period),
+      baselineA: Number(params.baselineA ?? params.baseline_a),
+      baselineB: Number(params.baselineB ?? params.baseline_b),
+    };
+  }
+
   /** CLOB settlement helpers. They intentionally use the generated IDL at runtime. */
   async settleClobFill(fill: Fill): Promise<string> {
     const market = new PublicKey(fill.market);

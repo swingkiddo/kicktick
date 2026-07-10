@@ -243,7 +243,7 @@ export class ProofGatherer {
           { statKey: PERIOD_PE + 2, period: PERIOD_PE },
         ];
       case MarketType.PenaltyShot:
-        return [{ statKey: 159, period: PERIOD_H1 }]; // P1 penalty goals default
+        return [];
       case MarketType.VARCheck:
         return [];
     }

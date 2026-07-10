@@ -147,7 +147,8 @@ export class FixtureWatcher extends EventEmitter {
     const bestRecord = records.length > 0
       ? records.reduce((best, r) => ((r?.seq ?? r?.Seq ?? 0) > (best?.seq ?? best?.Seq ?? 0) ? r : best))
       : null;
-    const status = bestRecord?.gameState ?? bestRecord?.StatusId ?? StatusId.NotStarted;
+    const rawStatus = bestRecord?.gameState ?? bestRecord?.StatusId ?? StatusId.NotStarted;
+    const status = typeof rawStatus === "string" ? gameStateToStatusId(rawStatus) ?? StatusId.NotStarted : rawStatus;
 
     const state: MatchState = {
       fixtureId,
@@ -202,6 +203,23 @@ export class FixtureWatcher extends EventEmitter {
 
       case SoccerAction.Goal:
         this.handleGoal(event, state);
+        if (event.participant === 1) state.stats[1] = state.homeScore;
+        if (event.participant === 2) state.stats[2] = state.awayScore;
+        break;
+
+      case SoccerAction.Corner:
+        if (event.participant === 1) state.stats[7] = (state.stats[7] ?? 0) + 1;
+        if (event.participant === 2) state.stats[8] = (state.stats[8] ?? 0) + 1;
+        break;
+
+      case SoccerAction.YellowCard:
+        if (event.participant === 1) state.stats[3] = (state.stats[3] ?? 0) + 1;
+        if (event.participant === 2) state.stats[4] = (state.stats[4] ?? 0) + 1;
+        break;
+
+      case SoccerAction.RedCard:
+        if (event.participant === 1) state.stats[5] = (state.stats[5] ?? 0) + 1;
+        if (event.participant === 2) state.stats[6] = (state.stats[6] ?? 0) + 1;
         break;
 
       case SoccerAction.ScoreAdjustment:

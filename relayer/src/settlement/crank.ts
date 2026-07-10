@@ -30,13 +30,13 @@ const DEFAULT_PROOF_BACKOFF_MS = [0, 1000, 2000, 4000];
 
 function outcomeToWinner(outcome: string): number {
   switch (outcome) {
-    case "Home": return 1;
-    case "Away": return 2;
-    case "NoGoal": return 3;
-    case "Yes": return 1;
-    case "No": return 2;
+    case "Home": return 0;
+    case "Away": return 1;
+    case "NoGoal": return 2;
+    case "Yes": return 0;
+    case "No": return 1;
     case "Cancelled": return 0;
-    default: return 2;
+    default: throw new Error(`unknown market outcome ${outcome}`);
   }
 }
 
@@ -178,6 +178,7 @@ export class Crank extends EventEmitter {
           action.marketType,
           marketSeq,
           action.deadlineSeconds,
+          action.params,
         ),
       );
       this.emitStatus(fixtureId, marketSeq, "open_market", "confirmed", txSig);
@@ -207,9 +208,13 @@ export class Crank extends EventEmitter {
       const keys = this.proofGatherer.getStatKeysForMarket(action.marketType);
       if (keys.length === 0) throw new Error(`market type ${action.marketType} has no on-chain proof mapping`);
 
-      // When targetStatKey is provided (event-triggered), use only that key
-      const statKey = action.targetStatKey ?? keys[0].statKey;
-      const period = keys.find(k => k.statKey === statKey)?.period ?? keys[0].period;
+      const marketParams = await this.anchorClient.getMarketParams(marketAddress);
+      const period = marketParams.period;
+
+      // The Anchor program always expects statA to be the first participant key.
+      // The event target is informational; selecting the away key as statA breaks
+      // the contract's expected_stat_keys validation.
+      const statKey = keys[0].statKey;
 
       const firstProof = await this.gatherProofWithRetry(
         fixtureId,
@@ -218,7 +223,7 @@ export class Crank extends EventEmitter {
         period,
       );
 
-      const predicate = this.proofGatherer.buildPredicate(0);
+      const predicate = this.proofGatherer.buildPredicate(marketParams.baselineA);
 
       const proofArgs: SettleProofArgs = {
         ts: firstProof.ts,
@@ -257,9 +262,7 @@ export class Crank extends EventEmitter {
         },
       };
 
-      if (action.targetStatKey) {
-        // Event-triggered settle: single stat key, no statB needed
-      } else if (keys.length === 2) {
+      if (keys.length === 2 && action.marketType !== MarketType.GoalInWindow && action.marketType !== MarketType.CornerInWindow && action.marketType !== MarketType.YellowCardInWindow && action.marketType !== MarketType.RedCardInMatch) {
         const secondProof = await this.gatherProofWithRetry(
           fixtureId,
           action.settlementSeq,
@@ -280,11 +283,6 @@ export class Crank extends EventEmitter {
           })),
         };
 
-        // PenaltyShootoutShot uses two-stat with op="Add" (single CPI call)
-        // Ternary markets (NextGoalSide/NextCorner/NextYellowCard): no op → two separate CPI calls
-        if (action.marketType === MarketType.PenaltyShootoutShot) {
-          proofArgs.op = "Add";
-        }
       }
 
       const txSig = await this.executeWithRetry(() =>

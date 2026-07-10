@@ -24,7 +24,7 @@ export enum MarketSide {
 }
 
 export type TriggerAction =
-  | { type: "open_market"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType; lockSeconds: number; deadlineSeconds: number; triggerSseSeq?: number }
+  | { type: "open_market"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType; lockSeconds: number; deadlineSeconds: number; params?: MarketOpenParams; triggerSseSeq?: number }
   | { type: "resolve_market_onchain"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType; settlementSeq: number; targetStatKey?: number }
   | { type: "resolve_market_offchain"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType; outcome: "Yes" | "No" | "Home" | "Away" | "NoGoal" | "Cancelled" }
   | { type: "confirm_market"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType };
@@ -37,6 +37,13 @@ export interface MarketTracker {
   expiresAt: number;
   settledAt?: number;
   triggerEvent?: SoccerEvent;
+}
+
+export interface MarketOpenParams {
+  participant: number;
+  period: number;
+  baselineA: number;
+  baselineB: number;
 }
 
 export const MIN_MARKET_DURATION = 15;
@@ -61,6 +68,30 @@ function statusEndsMatch(status: StatusId): boolean {
     status === StatusId.FinishedAfterExtraTime ||
     status === StatusId.FinishedAfterPenaltyShootout
   );
+}
+
+function periodForState(state: MatchState): number {
+  switch (state.currentPeriod) {
+    case "H2": return 1000;
+    case "ET1": return 2000;
+    case "ET2": return 3000;
+    case "PE": return 5000;
+    default: return 0;
+  }
+}
+
+function statKeysForMarket(marketType: MarketType): [number, number] {
+  switch (marketType) {
+    case MarketType.NextGoalSide:
+    case MarketType.GoalInWindow: return [1, 2];
+    case MarketType.NextCorner:
+    case MarketType.CornerInWindow: return [7, 8];
+    case MarketType.NextYellowCard:
+    case MarketType.YellowCardInWindow: return [3, 4];
+    case MarketType.RedCardInMatch: return [5, 6];
+    case MarketType.PenaltyShootoutShot: return [5001, 5002];
+    default: return [0, 0];
+  }
 }
 
 interface FixtureState {
@@ -204,18 +235,18 @@ export class MarketTrigger extends EventEmitter {
             matchPda: f.matchPda,
             marketSeq: market.marketSeq,
             marketType: market.marketType,
-            settlementSeq: 0,
+            settlementSeq: seq,
           });
           break;
 
         case MarketType.PenaltyShot:
           actions.push({
-            type: "resolve_market_onchain",
+            type: "resolve_market_offchain",
             fixtureId,
             matchPda: f.matchPda,
             marketSeq: market.marketSeq,
             marketType: market.marketType,
-            settlementSeq: seq,
+            outcome: "No",
           });
           break;
         case MarketType.VARCheck:
@@ -311,6 +342,15 @@ export class MarketTrigger extends EventEmitter {
       marketType,
       lockSeconds: timings.lock,
       deadlineSeconds: deadlineSec,
+      params: (() => {
+        const [keyA, keyB] = statKeysForMarket(marketType);
+        return {
+          participant: 0,
+          period: periodForState(state),
+          baselineA: state.stats[keyA] ?? 0,
+          baselineB: state.stats[keyB] ?? 0,
+        };
+      })(),
     });
   }
 
@@ -327,7 +367,7 @@ export class MarketTrigger extends EventEmitter {
       current.status = "settling";
       current.settledAt = Date.now();
       actions.push({
-        type: "resolve_market_onchain",
+        type: "resolve_market_offchain",
         fixtureId,
         matchPda: f.matchPda,
         marketSeq: current.marketSeq,
@@ -444,15 +484,13 @@ export class MarketTrigger extends EventEmitter {
     if (current) {
       current.status = "settling";
       current.settledAt = Date.now();
-      const targetStatKey = event.participant === 1 ? 159 : (event.participant === 2 ? 160 : 159);
       actions.push({
-        type: "resolve_market_onchain",
+        type: "resolve_market_offchain",
         fixtureId,
         matchPda: f.matchPda,
         marketSeq: current.marketSeq,
         marketType: MarketType.PenaltyShot,
-        settlementSeq: event.seq!,
-        targetStatKey,
+        outcome: event.outcome === "Scored" ? "Yes" : "No",
       });
     }
 
@@ -554,7 +592,6 @@ export class MarketTrigger extends EventEmitter {
       MarketType.YellowCardInWindow,
       MarketType.RedCardInMatch,
       MarketType.PenaltyShootoutShot,
-      MarketType.PenaltyShot,
     ]);
 
     const seq = this.lastSeenSeq.get(fixtureId) ?? 0;
