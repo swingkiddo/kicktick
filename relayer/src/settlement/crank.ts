@@ -90,13 +90,13 @@ export class Crank extends EventEmitter {
     const { fixtureId, marketSeq } = action;
     switch (action.type) {
       case "open_market":
-        return this.executeOpenRound(fixtureId, marketSeq, action);
+        return this.executeOpenMarket(fixtureId, marketSeq, action);
       case "resolve_market_onchain":
         return this.executeSettleOnchain(fixtureId, marketSeq, action);
       case "resolve_market_offchain":
         return this.executeSettleOffchain(fixtureId, marketSeq, action);
       case "confirm_market":
-        return this.executeConfirmRound(fixtureId, marketSeq, action);
+        return this.executeConfirmMarket(fixtureId, marketSeq, action);
     }
   }
 
@@ -158,28 +158,26 @@ export class Crank extends EventEmitter {
     throw lastError ?? new Error("gatherProofWithRetry exhausted without error");
   }
 
-  private async executeOpenRound(
+  private async executeOpenMarket(
     fixtureId: number,
     marketSeq: number,
     action: TriggerAction & { type: "open_market" },
   ): Promise<void> {
-    const matchPda = new PublicKey(action.matchPda);
-    this.emitStatus(fixtureId, marketSeq, "open_round", "pending");
+    this.emitStatus(fixtureId, marketSeq, "open_market", "pending");
 
     try {
       const txSig = await this.executeWithRetry(() =>
-        this.anchorClient.openRound(
-          marketSeq,
+        this.anchorClient.initMarket(
+          fixtureId,
           action.marketType,
-          action.lockSeconds,
+          marketSeq,
           action.deadlineSeconds,
-          matchPda,
         ),
       );
-      this.emitStatus(fixtureId, marketSeq, "open_round", "confirmed", txSig);
+      this.emitStatus(fixtureId, marketSeq, "open_market", "confirmed", txSig);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.emitStatus(fixtureId, marketSeq, "open_round", "failed", undefined, msg);
+      this.emitStatus(fixtureId, marketSeq, "open_market", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
     }
   }
@@ -189,7 +187,12 @@ export class Crank extends EventEmitter {
     marketSeq: number,
     action: TriggerAction & { type: "resolve_market_onchain" },
   ): Promise<void> {
-    const matchPda = new PublicKey(action.matchPda);
+    const marketAddress = AnchorClient.deriveMarketPda(
+      BigInt(fixtureId),
+      AnchorClient.marketTypeIndex(action.marketType),
+      BigInt(marketSeq),
+      this.anchorClient.programId,
+    )[0].toBase58();
     this.emitStatus(fixtureId, marketSeq, "settle_onchain", "pending");
 
     try {
@@ -277,7 +280,7 @@ export class Crank extends EventEmitter {
       }
 
       const txSig = await this.executeWithRetry(() =>
-        this.anchorClient.settleRound(marketSeq, matchPda, proofArgs),
+        this.anchorClient.resolveMarketWithProof(marketAddress, proofArgs),
       );
 
       this.emitStatus(fixtureId, marketSeq, "settle_onchain", "confirmed", txSig);
@@ -293,15 +296,18 @@ export class Crank extends EventEmitter {
     marketSeq: number,
     action: TriggerAction & { type: "resolve_market_offchain" },
   ): Promise<void> {
-    const matchPda = new PublicKey(action.matchPda);
+    const marketAddress = AnchorClient.deriveMarketPda(
+      BigInt(fixtureId),
+      AnchorClient.marketTypeIndex(action.marketType),
+      BigInt(marketSeq),
+      this.anchorClient.programId,
+    )[0].toBase58();
     this.emitStatus(fixtureId, marketSeq, "settle_offchain", "pending");
 
     try {
       const txSig = await this.executeWithRetry(() =>
-        this.anchorClient.settleOffchainRound(
-          marketSeq,
-          matchPda,
-          action.outcome,
+        this.anchorClient.resolveMarketOffchain(
+          marketAddress,
           outcomeToWinner(action.outcome),
         ),
       );
@@ -314,23 +320,28 @@ export class Crank extends EventEmitter {
     }
   }
 
-  private async executeConfirmRound(
+  private async executeConfirmMarket(
     fixtureId: number,
     marketSeq: number,
     action: TriggerAction & { type: "confirm_market" },
   ): Promise<void> {
-    const matchPda = new PublicKey(action.matchPda);
-    this.emitStatus(fixtureId, marketSeq, "confirm_round", "pending");
+    const marketAddress = AnchorClient.deriveMarketPda(
+      BigInt(fixtureId),
+      AnchorClient.marketTypeIndex(action.marketType),
+      BigInt(marketSeq),
+      this.anchorClient.programId,
+    )[0].toBase58();
+    this.emitStatus(fixtureId, marketSeq, "confirm_market", "pending");
 
     try {
       const txSig = await this.executeWithRetry(() =>
-        this.anchorClient.confirmRound(marketSeq, matchPda),
+        this.anchorClient.confirmMarket(marketAddress),
       );
 
-      this.emitStatus(fixtureId, marketSeq, "confirm_round", "confirmed", txSig);
+      this.emitStatus(fixtureId, marketSeq, "confirm_market", "confirmed", txSig);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.emitStatus(fixtureId, marketSeq, "confirm_round", "failed", undefined, msg);
+      this.emitStatus(fixtureId, marketSeq, "confirm_market", "failed", undefined, msg);
       this.emit("error", err instanceof Error ? err : new Error(String(err)), action);
     }
   }

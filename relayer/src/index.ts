@@ -39,7 +39,7 @@ function getMarketMessage(status: CrankStatus): WsServerMessage | null {
   const { fixtureId, marketSeq, txSig } = status;
   if (!txSig) return null;
   switch (status.action) {
-    case "open_round":
+    case "open_market":
       return {
         type: "market_opened",
         data: { fixtureId, marketSeq, marketType: "", lockSeconds: 0, deadlineSeconds: 0, expiresAt: 0 },
@@ -47,7 +47,7 @@ function getMarketMessage(status: CrankStatus): WsServerMessage | null {
     case "settle_onchain":
     case "settle_offchain":
       return { type: "market_resolved", data: { fixtureId, marketSeq, outcome: "", txSig } };
-    case "confirm_round":
+    case "confirm_market":
       return { type: "market_confirmed", data: { fixtureId, marketSeq, txSig } };
     default:
       return null;
