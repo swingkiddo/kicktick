@@ -9,6 +9,7 @@ import {
 import { AnchorProvider, Program, Wallet, BN } from "@anchor-lang/core";
 import type { Idl } from "@anchor-lang/core/dist/cjs/idl";
 import { Config } from "../config";
+import type { Fill } from "../clob/types";
 
 // ── IDL ──
 
@@ -226,6 +227,28 @@ export class AnchorClient {
 
   static deriveConfigPda(programId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync([Buffer.from("config")], programId);
+  }
+
+  static deriveMarketPda(fixtureId: bigint, marketType: number, marketSeq: bigint, programId: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([
+      Buffer.from("market"), toLeBytes64(Number(fixtureId)), Buffer.from([marketType]), toLeBytes64(Number(marketSeq)),
+    ], programId);
+  }
+
+  static deriveMarketVaultPda(market: PublicKey, programId: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([Buffer.from("market_vault"), market.toBuffer()], programId);
+  }
+
+  static deriveUserAccountPda(owner: PublicKey, programId: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([Buffer.from("user"), owner.toBuffer()], programId);
+  }
+
+  static deriveUserVaultPda(owner: PublicKey, programId: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([Buffer.from("user_vault"), owner.toBuffer()], programId);
+  }
+
+  static derivePositionPda(market: PublicKey, owner: PublicKey, programId: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([Buffer.from("position"), market.toBuffer(), owner.toBuffer()], programId);
   }
 
   static deriveDailyScoresRootsPda(txoracleProgramId: PublicKey): [PublicKey, number] {
@@ -601,5 +624,52 @@ export class AnchorClient {
   async fetchConfig(): Promise<any> {
     const [configPda] = AnchorClient.deriveConfigPda(this.programId);
     return (this.program.account as Accounts).config.fetch(configPda);
+  }
+
+  /** CLOB settlement helpers. They intentionally use the generated IDL at runtime. */
+  async settleClobFill(fill: Fill): Promise<string> {
+    const market = new PublicKey(fill.market);
+    if (fill.kind === "DIRECT") {
+      if (!fill.buyer || !fill.seller || fill.outcome_index === undefined) throw new AnchorClientError("direct fill is missing buyer, seller, or outcome");
+      const buyer = new PublicKey(fill.buyer), seller = new PublicKey(fill.seller);
+      return this.buildAndSend((this.program.methods as any).settleShareTrade(
+        new BN(fill.market_sequence.toString()), fill.outcome_index, fill.prices_bps[0], new BN(fill.quantity.toString()),
+      ).accountsStrict({
+        relayer: this.walletPublicKey, config: AnchorClient.deriveConfigPda(this.programId)[0], market,
+        buyer, buyerAccount: AnchorClient.deriveUserAccountPda(buyer, this.programId)[0], buyerVault: AnchorClient.deriveUserVaultPda(buyer, this.programId)[0],
+        buyerPosition: AnchorClient.derivePositionPda(market, buyer, this.programId)[0], seller,
+        sellerAccount: AnchorClient.deriveUserAccountPda(seller, this.programId)[0], sellerVault: AnchorClient.deriveUserVaultPda(seller, this.programId)[0],
+        sellerPosition: AnchorClient.derivePositionPda(market, seller, this.programId)[0], systemProgram: SystemProgram.programId,
+      }).transaction());
+    }
+    throw new AnchorClientError(`complete-set fill ${fill.id} must be submitted with owner expansion`);
+  }
+
+  async settleCompleteSetFill(fill: Fill, owners: string[]): Promise<string> {
+    const market = new PublicKey(fill.market);
+    if (owners.length !== fill.prices_bps.length || (owners.length !== 2 && owners.length !== 3)) throw new AnchorClientError("complete-set fill owner count does not match prices");
+    const accounts: Record<string, PublicKey> = {
+      relayer: this.walletPublicKey, config: AnchorClient.deriveConfigPda(this.programId)[0], market,
+      marketVault: AnchorClient.deriveMarketVaultPda(market, this.programId)[0], systemProgram: SystemProgram.programId,
+    };
+    owners.forEach((ownerString, index) => {
+      const owner = new PublicKey(ownerString);
+      accounts[`outcome${index}Owner`] = owner;
+      accounts[`outcome${index}Account`] = AnchorClient.deriveUserAccountPda(owner, this.programId)[0];
+      accounts[`outcome${index}Vault`] = AnchorClient.deriveUserVaultPda(owner, this.programId)[0];
+      accounts[`outcome${index}Position`] = AnchorClient.derivePositionPda(market, owner, this.programId)[0];
+    });
+    const methods: any = this.program.methods;
+    const method = owners.length === 2
+      ? methods.settleCompleteSetBinary(new BN(fill.market_sequence.toString()), fill.prices_bps[0], fill.prices_bps[1], new BN(fill.quantity.toString()))
+      : methods.settleCompleteSetTernary(new BN(fill.market_sequence.toString()), fill.prices_bps[0], fill.prices_bps[1], fill.prices_bps[2], new BN(fill.quantity.toString()));
+    return this.buildAndSend(method.accountsStrict(accounts).transaction());
+  }
+
+  async getNextFillSequence(market: string): Promise<bigint> {
+    const account = await (this.program.account as any).market.fetch(new PublicKey(market));
+    // `fillSequence` is part of the CLOB target account. The fallback keeps the
+    // recovery layer usable against the in-progress migration IDL.
+    return BigInt(account.fillSequence?.toString?.() ?? account.fill_sequence?.toString?.() ?? "0");
   }
 }

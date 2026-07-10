@@ -18,6 +18,11 @@ import { FixtureWatcher } from "./market/fixture-watcher";
 import { parseSoccerEvent } from "./market/event-parser";
 import { normalizeSsePayload } from "./market/sse-normalize";
 import { SseLogger } from "./market/sse-logger";
+import { ClobStore } from "./clob/store";
+import { MatchingEngine } from "./clob/matching-engine";
+import { FillSettlementQueue } from "./clob/settlement";
+import { ClobWsApi } from "./clob/ws-api";
+import { ClobRecovery } from "./clob/recovery";
 import type { FixtureRecord } from "@swingkiddo/txodds-client";
 
 function actionSummary(actions: TriggerAction[]): string {
@@ -60,6 +65,7 @@ async function main(): Promise<void> {
   console.log(`  TxLINE Host:     ${config.txlineApiHost}`);
   console.log(`  TxLINE JWT:      ${config.txlineJwt ? "set" : "missing"}`);
   console.log(`  TxLINE Token:    ${config.txlineApiToken ? "set" : "missing"}`);
+  console.log(`  CLOB database:   ${config.clobDbPath}`);
 
   if (!config.txlineJwt && !config.txlineApiToken) {
     console.warn("No TxLINE credentials configured — attempting guest auth...");
@@ -68,6 +74,26 @@ async function main(): Promise<void> {
   const wsServer = new WsServer(config.wsPort);
   const txlineClient = new TxLineClient(config);
   const anchorClient = new AnchorClient(config);
+  const clobStore = new ClobStore(config.clobDbPath);
+  const matchingEngine = new MatchingEngine(clobStore);
+  const fillSettlement = new FillSettlementQueue(clobStore, anchorClient);
+  const clobWsApi = new ClobWsApi(wsServer, clobStore, matchingEngine, {
+    network: config.solanaRpcUrl.includes("devnet") ? "devnet" : "mainnet-beta",
+    programId: config.kicktickProgramId.toBase58(),
+    onFills: async market => {
+      for (const fill of clobStore.listPendingFills().filter(candidate => candidate.market === market && candidate.status === "MATCHED")) {
+        await fillSettlement.submit(fill);
+      }
+    },
+  });
+  fillSettlement.on("confirmed", fill => { if (fill) clobWsApi.publishMarket(fill.market); });
+  fillSettlement.on("failed", fill => { if (fill) clobWsApi.publishMarket(fill.market); });
+  try {
+    const recovery = await new ClobRecovery(clobStore, matchingEngine).recover(anchorClient);
+    console.log(`  CLOB recovery: ${recovery.restored_orders} books, ${recovery.confirmed_fills.length} confirmed, ${recovery.retry_fills.length} pending`);
+  } catch (error) {
+    console.warn(`  CLOB recovery deferred: ${error instanceof Error ? error.message : error}`);
+  }
   const proofGatherer = new ProofGatherer(txlineClient);
   const crank = new Crank(anchorClient, proofGatherer);
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
@@ -347,6 +373,7 @@ async function main(): Promise<void> {
     }
     wsServer.stop();
     sseLogger.close();
+    clobStore.close();
     console.log("Goodbye.");
     process.exit(0);
   }

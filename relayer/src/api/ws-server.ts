@@ -17,7 +17,15 @@ export type WsClientMessage =
   | { type: "subscribe_match"; data: { fixtureId: number } }
   | { type: "unsubscribe_match"; data: { fixtureId: number } }
   | { type: "subscribe_all" }
-  | { type: "ping" };
+  | { type: "ping" }
+  | { type: "auth_challenge"; data: { owner: string } }
+  | { type: "auth_response"; data: { owner: string; signature: string } }
+  | { type: "subscribe_market"; data: { market: string } }
+  | { type: "unsubscribe_market"; data: { market: string } }
+  | { type: "subscribe_orderbook"; data: { market: string } }
+  | { type: "submit_order"; data: unknown }
+  | { type: "cancel_order"; data: unknown }
+  | { type: "cancel_all"; data?: { market?: string } };
 
 interface ClientState {
   isAlive: boolean;
@@ -37,7 +45,7 @@ export class WsServer extends EventEmitter {
   }
 
   start(): void {
-    this.wss = new WebSocketServer({ port: this.port });
+    this.wss = new WebSocketServer({ port: this.port, maxPayload: 16 * 1024 });
 
     this.wss.on("connection", (ws: WebSocket) => {
       const state: ClientState = { isAlive: true, subscribedFixtures: new Set() };
@@ -55,7 +63,7 @@ export class WsServer extends EventEmitter {
           return;
         }
 
-        this.emit("message", msg);
+        this.emit("message", ws, msg);
 
         switch (msg.type) {
           case "ping":

@@ -23,6 +23,7 @@ RUN npm run build
 # --- Dev stage (hot-reload via volume mount) ---
 FROM deps AS dev
 COPY . .
+RUN npm run build
 EXPOSE 8080
 CMD ["npm", "run", "dev"]
 

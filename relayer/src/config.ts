@@ -24,6 +24,7 @@ export interface Config {
   txlMint: PublicKey;
   wsPort: number;
   competitionId: number;
+  clobDbPath: string;
 }
 
 export function loadConfig(): Config {
@@ -47,5 +48,6 @@ export function loadConfig(): Config {
     ),
     wsPort: parseInt(process.env.WS_PORT || String(constants.wsPort), 10),
     competitionId: parseInt(process.env.COMPETITION_ID || String(constants.competitionId), 10),
+    clobDbPath: process.env.CLOB_DB_PATH || path.resolve(__dirname, "../data/clob.sqlite"),
   };
 }
