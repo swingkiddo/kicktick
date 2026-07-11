@@ -16,45 +16,48 @@ tags: [triggers, rules, markets, events, cron]
 
 ## Overview
 
-Rules engine in `src/market/triggers.ts`. Converts match events and time windows into `TriggerAction[]` consumed by the crank.
+Rules engine in `src/market/triggers.ts`. Converts match events and time windows into `MarketCommand[]` consumed by the lifecycle executor.
 
 ### TriggerAction Types
 
 ```typescript
-type TriggerAction =
-  | { type: "open_round"; fixtureId; matchPda; roundId; marketType; lockSeconds; deadlineSeconds }
-  | { type: "settle_onchain"; fixtureId; matchPda; roundId; marketType; settlementSeq }
-  | { type: "settle_offchain"; fixtureId; matchPda; roundId; marketType; outcome: "Yes" | "No" }
-  | { type: "confirm_round"; fixtureId; matchPda; roundId }
+type MarketCommand =
+  | { type: "open_market"; fixtureId; matchPda; marketSeq; marketType; deadlineSeconds }
+  | { type: "lock_market"; fixtureId; matchPda; marketSeq; reason: "event" | "deadline" }
+  | { type: "resolve_market_onchain"; fixtureId; matchPda; marketSeq; marketType; settlementSeq }
+  | { type: "resolve_market_offchain"; fixtureId; matchPda; marketSeq; marketType; outcome: "Yes" | "No" }
+  | { type: "confirm_market"; fixtureId; matchPda; marketSeq }
 ```
 
-The action names are legacy aliases kept for compatibility with the current code. They now drive CLOB market lifecycle actions: open, lock, resolve, and confirm.
+These commands are the canonical relayer domain vocabulary. The lifecycle
+executor maps them to CLOB persistence, locking, proof/off-chain resolution,
+and confirmation work.
 
 ### Market States
 
 ```
-open → settling → settled
+OPEN → LOCKED → RESOLVED_PENDING → RESOLVED
   │                  │
   ▼                  ▼
-(cancelled)    (confirmed via timeout)
+(VOIDED)       (confirmed after resolution)
 ```
 
 ---
 
 ## Market Type Timing
 
-| Market Type | Lock (s) | Deadline (s) | Settlement |
-|-------------|----------|--------------|------------|
-| NextGoalSide | 30 | 90 | On-chain |
-| GoalInWindow | 15 | 300 | On-chain |
-| NextCorner | 30 | 120 | On-chain |
-| CornerInWindow | 15 | 180 | On-chain |
-| NextYellowCard | 30 | 120 | On-chain |
-| YellowCardInWindow | 15 | 300 | On-chain |
-| RedCardInMatch | 15 | 99999 | On-chain |
-| PenaltyShootoutShot | 10 | 30 | On-chain |
-| PenaltyShot | 15 | 90 | Off-chain |
-| VARCheck | 15 | 120 | Off-chain |
+| Market Type | Deadline (s) | Lock trigger | Settlement |
+|-------------|--------------|--------------|------------|
+| NextGoalSide | 90 | goal event or deadline | On-chain |
+| GoalInWindow | 300 | goal event or deadline | On-chain |
+| NextCorner | 120 | corner event or deadline | On-chain |
+| CornerInWindow | 180 | corner event or deadline | On-chain |
+| NextYellowCard | 120 | card event or deadline | On-chain |
+| YellowCardInWindow | 300 | card event or deadline | On-chain |
+| RedCardInMatch | 7200 | red-card event or match end | On-chain |
+| PenaltyShootoutShot | 30 | shot outcome or deadline | On-chain |
+| PenaltyShot | 90 | penalty outcome or deadline | Off-chain |
+| VARCheck | 120 | VAR end or deadline | Off-chain |
 
 ---
 
@@ -64,15 +67,16 @@ open → settling → settled
 
 ```typescript
 handleGoal(event, fixtureId, matchState, actions):
-  // if NextGoalSide market open → settle with outcome (home=Yes, away=No)
-  // open new NextGoalSide market
+  // if NextGoalSide market open:
+  //   lock immediately, then resolve (home=Yes, away=No)
+  // open new NextGoalSide market after the event
 ```
 
 ### Corner → NextCorner
 
 ```typescript
 handleCorner(event, fixtureId, matchState, actions):
-  // if NextCorner market open → settle (home=Yes, away=No)
+  // if NextCorner market open → lock immediately, then resolve (home=Yes, away=No)
   // open new NextCorner market
 ```
 
@@ -80,7 +84,7 @@ handleCorner(event, fixtureId, matchState, actions):
 
 ```typescript
 handleYellowCard(event, fixtureId, matchState, actions):
-  // if NextYellowCard market open → settle (home=Yes, away=No)
+  // if NextYellowCard market open → lock immediately, then resolve (home=Yes, away=No)
   // open new NextYellowCard market
 ```
 
@@ -88,7 +92,7 @@ handleYellowCard(event, fixtureId, matchState, actions):
 
 ```typescript
 handleRedCard(event, fixtureId, matchState, actions):
-  // if RedCardInMatch market open → settle(Yes)
+  // if RedCardInMatch market open → lock immediately, then settle(Yes)
   // no new market opened (match-level binary market)
 ```
 
@@ -185,13 +189,14 @@ Polled every 5s via `setInterval` in `index.ts`.
 ```typescript
 checkTimeouts(fixtureId):
   for each market:
-    if market expired (now > expiresAt):
-      if market.settlement_model === OnChain:
-        settle_onchain(seq=0)
+    if market expired (now >= expiresAt):
+      lock_market(reason="deadline")
+      if market requires oracle proof:
+        resolve_market_onchain(seq=last_proof_ready_sequence)
       else:
-        settle_offchain(No)
-    if market settling and now > settleAt + 60s:
-      confirm_round
+        resolve_market_offchain(No)
+    if market is resolved pending and confirmation is allowed:
+      confirm_market
 ```
 
 ---
@@ -203,3 +208,5 @@ On `FullTime`, `FinishedAfterExtraTime`, `FinishedAfterPenaltyShootout`:
 1. Settle any open `RedCardInMatch` → No (no red card in remaining time)
 2. Settle all remaining open markets → No (event didn't happen)
 3. Stop cron windows
+
+The settlement sequence is the upstream TxLINE score sequence, not the local market sequence. If TxLINE has not produced a proof for that sequence, the crank retries only the proof-not-ready case.

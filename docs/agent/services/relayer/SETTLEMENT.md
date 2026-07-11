@@ -14,7 +14,12 @@ tags: [settlement, proof, crank, CPI, transaction]
 
 # Proof Gathering & Settlement Crank
 
-This document covers market resolution after trading has already happened. The trade path itself is described in `CLOB.md` and uses the fill queue in `src/clob/settlement.ts`.
+This document covers the transition from trading to market resolution. A market
+is kept open while its outcome is uncertain. When an SSE event makes the
+outcome determinable, the relayer stops accepting new CLOB intake, drains
+already matched fills, locks the market, and only then resolves it. The same
+lock-and-resolve sequence runs at the deadline when no determining event was
+observed.
 
 ## 1) CLOB fill settlement
 
@@ -34,13 +39,28 @@ FillSettlementQueue.submit(fill)
 
 When a relayer restarts, it reloads `MATCHED` and `SUBMITTED` fills from SQLite, compares them to on-chain `fillSequence`, and either confirms the fill or retries the queue.
 
+### Fill state machine
+
+```text
+MATCHED → SUBMITTED → CONFIRMED
+   │          │
+   │          └── UNKNOWN (signature/transport result is ambiguous)
+   └───────────── FAILED_RETRYABLE / FAILED_FINAL
+```
+
+`UNKNOWN` must keep the reservation. It is not safe to release or resubmit until signature status and the on-chain market `fillSequence` have been checked.
+
 ## 2) Market resolution
 
 ```
-market-trigger emits settle_onchain or settle_offchain
+market-trigger emits lock_market(reason) and a resolve command
   │
   ▼
 crank.executeTriggerActions([...])
+  │
+  ├── stop new CLOB intake and drain matched fills
+  ├── anchor-client.lockMarket()
+  │     └── Solana tx: lock_market → Locked
   │
   ├── proof-gatherer.getStatKeysForMarket(marketType)
   │     returns the stat key(s) needed for the market
@@ -73,10 +93,10 @@ The relayer combines the two paths with `op: Add` so `statA + statB > 0` determi
 
 | Market | Event | Outcome | Winner |
 |--------|-------|---------|--------|
-| PenaltyShot | Scored | Yes | 1 |
-| PenaltyShot | Missed | No | 2 |
-| VARCheck | Overturned | Yes | 1 |
-| VARCheck | Stands | No | 2 |
+| PenaltyShot | Scored | outcome 0 | 0 |
+| PenaltyShot | Missed | outcome 1 | 1 |
+| VARCheck | Overturned | outcome 0 | 0 |
+| VARCheck | Stands | outcome 1 | 1 |
 
 ## Proof Data Structure
 
@@ -118,7 +138,7 @@ Implemented in `src/settlement/crank.ts`.
 
 ### Retry Policy
 
-Two independent retry loops protect a `settle_onchain` action:
+Two independent retry loops protect a `resolve_market_onchain` action:
 
 **Anchor transaction retry** (`executeWithRetry` in `crank.ts`):
 ```typescript
@@ -168,7 +188,7 @@ for each action:
 ```typescript
 interface CrankStatus {
   fixtureId: number;
-  roundId: number;
+  marketSeq: number;
   action: string;     // legacy trigger alias for market lifecycle actions
   status: "pending" | "sent" | "confirmed" | "failed";
   txSig?: string;
@@ -197,7 +217,9 @@ resolve_market_with_proof / resolve_market_offchain → ResolvedPending
 confirm_market → Resolved
 ```
 
-Timeout handler checks every 5s for markets in `ResolvedPending` state with elapsed >= 60s.
+Timeout handler checks every 5s for markets in `ResolvedPending` state and
+confirms them when the current market policy allows it. The current on-chain
+Config has `finality_delay = 0`, so confirmation is immediate after resolution.
 
 ### Error Recovery
 
@@ -206,3 +228,9 @@ Timeout handler checks every 5s for markets in `ResolvedPending` state with elap
 | Transaction failure | Retry up to 3x with backoff |
 | Anchor error log | Parse for anchor error code, surface in status |
 | Missing proof data | Failure logged, no retry (proof is deterministic for seq) |
+
+## Current limitations
+
+- The relayer does not yet reject every order using on-chain `UserAccount` balance and `Position` state before local matching.
+- Error-text classification is not a substitute for Solana signature reconciliation.
+- A timeout action must carry a proof-ready upstream sequence; a missing sequence must be treated as a blocked action, not settled with an arbitrary proof.

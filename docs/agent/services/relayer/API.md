@@ -14,7 +14,7 @@ tags: [websocket, api, protocol, messages]
 
 ## Overview
 
-WebSocket server in `src/api/ws-server.ts`. Pushes round and match state to connected frontends.
+WebSocket server in `src/api/ws-server.ts`. Pushes market and match state to connected frontends.
 
 **Default port:** 8080 (configurable via `WS_PORT` env var)
 
@@ -66,6 +66,32 @@ Server responds with:
 
 ## Server → Client Messages
 
+## Dev test control plane
+
+When `TEST_MODE=true`, the admin wallet can authenticate with `test_auth_challenge` / `test_auth_response`. The server accepts these commands only for the relayer/admin public key:
+
+- `test_create_match` — `{ fixtureId, homeTeam, awayTeam }`
+- `test_create_market` — `{ fixtureId, marketType, marketSeq, deadlineSeconds }`
+- `test_emit_event` — `{ fixtureId, action, participant?, statusId?, outcome? }`
+- `test_snapshot` — returns synthetic matches and SQLite markets
+- `test_reset` — clears test CLOB orders, fills, nonces, and markets
+
+The control plane uses the same Anchor client, SQLite CLOB, FixtureWatcher, MarketTrigger, lifecycle, and broadcasts as the live relayer. Do not enable it in production.
+
+Run the JSON-wallet order runner in Docker. `TEST_MARKET` is required; wallet
+names are resolved from the read-only directory mounted by `run.sh`:
+
+```bash
+TEST_MARKET=<market-pda> \
+TEST_WALLETS=wallet-01.json,wallet-02.json \
+./scripts/run.sh test-runner
+```
+
+When using `run.sh`, provide these variables through `relayer/.env` or another
+environment file consumed by the container. The runner sets
+`TEST_WALLETS_DIR=/app/test-wallets` and does not copy private keys into the
+container image.
+
 ### Match State Update
 
 ```json
@@ -84,14 +110,14 @@ Server responds with:
 
 Sent on goal, score adjustment, status change.
 
-### Round Opened
+### Market Opened
 
 ```json
 {
-  "type": "round_opened",
+  "type": "market_opened",
   "data": {
     "fixtureId": 542179,
-    "roundId": 3,
+    "marketSeq": 3,
     "marketType": "NextGoalSide",
     "lockSeconds": 30,
     "deadlineSeconds": 90,
@@ -100,41 +126,41 @@ Sent on goal, score adjustment, status change.
 }
 ```
 
-### Round Settled
+### Market Settled
 
 ```json
 {
-  "type": "round_settled",
+  "type": "market_resolved",
   "data": {
     "fixtureId": 542179,
-    "roundId": 3,
+    "marketSeq": 3,
     "outcome": "Yes",
     "txSig": "5KtPn2..."
   }
 }
 ```
 
-### Round Confirmed
+### Market Confirmed
 
 ```json
 {
-  "type": "round_confirmed",
+  "type": "market_confirmed",
   "data": {
     "fixtureId": 542179,
-    "roundId": 3,
+    "marketSeq": 3,
     "txSig": "5KtPn2..."
   }
 }
 ```
 
-### Round Cancelled
+### Market Cancelled
 
 ```json
 {
-  "type": "round_cancelled",
+  "type": "market_cancelled",
   "data": {
     "fixtureId": 542179,
-    "roundId": 3
+    "marketSeq": 3
   }
 }
 ```
@@ -155,6 +181,8 @@ Sent on goal, score adjustment, status change.
 
 Raw event broadcast to subscribers of that fixture.
 
+Match state, football events, market lifecycle notifications, and fixture-specific transaction statuses are routed only to clients subscribed to the corresponding fixture. Global broadcasts are reserved for `system_status` and general error/status diagnostics. CLOB market and orderbook messages are routed only to clients subscribed to that market.
+
 ### Tx Status
 
 ```json
@@ -162,7 +190,7 @@ Raw event broadcast to subscribers of that fixture.
   "type": "tx_status",
   "data": {
     "fixtureId": 542179,
-    "roundId": 3,
+    "marketSeq": 3,
     "status": "confirmed",
     "txSig": "5KtPn2...",
     "error": null

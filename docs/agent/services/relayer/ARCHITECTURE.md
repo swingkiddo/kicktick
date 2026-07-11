@@ -11,138 +11,120 @@ related_to:
   - relayer-settlement
   - relayer-api
   - integration-data-flow
-tags: [architecture, data-flow, modules]
+tags: [relayer, clob, data-flow, recovery]
 ---
 
 # Relayer Architecture
 
-## Module Dependency Graph
+The relayer is a single process composed from CLOB application services,
+TxLINE integration, Solana settlement, and a WebSocket transport. SQLite is
+the durable local source of truth for orders, fills, markets, cursors, and
+lifecycle intents. Solana is authoritative for confirmed collateral, shares,
+market state, and fill sequence.
 
-```
-index.ts (main loop)
-  │
-  ├── config.ts                 ── env/config bootstrap
-  ├── clob/store.ts             ── SQLite markets, orders, fills, nonces
-  ├── clob/matching-engine.ts   ── price-time matching
-  ├── clob/settlement.ts        ── serialized fill submission + recovery
-  ├── clob/lifecycle.ts         ── open / freeze / lock / resolve / confirm
-  ├── clob/ws-api.ts            ── wallet-authenticated WebSocket API
-  │
-  ├── txline-client.ts          ── SSE stream (scores + odds)
-  │     │
-  │     ├── event-parser.ts     ── raw SSE → typed FootballEvent
-  │     │     │
-  │     │     ├── fixture-watcher.ts  ── match state tracking
-  │     │     │     │
-  │     │     │     └── market-trigger/triggers.ts  ── market rules engine
-  │     │     │           │
-  │     │     │           ├── proof-gatherer.ts     ── Merkle proof fetch
-  │     │     │           │     │
-  │     │     │           │     └── crank.ts        ── tx builder + sender
-  │     │     │           │           │
-  │     │     │           │           └── anchor-client.ts ── Solana RPC
-  │     │     │           │
-  │     │     │           └── ws-server.ts         ── push to frontend
-  │     │     │
-  │     │     └── (events also flow to ws-server for broadcast)
-```
+## Module dependency graph
 
-## Startup Sequence
-
-```
-1. loadConfig()                      env → Config struct
-2. new WsServer(port).start()        WebSocket listener up
-3. new TxLineClient(config)          SSE client init
-4. new AnchorClient(config)          Solana wallet + IDL load
-5. new ProofGatherer(client)         proof fetcher
-6. new Crank(anchor, proof)          crank executor
-7. new FixtureWatcher(client, cfg)   match state manager
-8. new MarketTrigger()               rules engine
-9. authenticate()                    TxLINE JWT
-10. getFixtures(72)                  World Cup fixtures
-11. loadFixture(id) for top 5       match state init
-12. startCronWindows(id)             window markets on
-13. streamScores() SSE loop          main event loop
-14. setInterval(checkTimeouts, 5s)   timeout checker
+```text
+index.ts
+├── config.ts                 env/config bootstrap
+├── clob/store.ts             SQLite persistence
+├── clob/matching-engine.ts   price-time matching
+├── clob/settlement.ts        serialized fill submission
+├── clob/recovery.ts          restart reconciliation
+├── clob/lifecycle.ts         intake freeze and locking
+├── clob/ws-api.ts            wallet-authenticated CLOB protocol
+├── clients/txline-client.ts  TxLINE REST/SSE integration
+├── clients/txline-auth.ts    guest/API-token provisioning
+├── clients/anchor-client.ts  Anchor IDL and Solana transactions
+├── infrastructure/txline/   raw score mapping
+├── domain/football/           normalized football events and state
+├── market/fixture-watcher.ts  fixture reduction
+├── market/triggers.ts         MarketCommand generation
+├── market/action-executor.ts  durable lifecycle orchestration
+├── settlement/proof-gatherer.ts  TxLINE proof retrieval
+├── settlement/crank.ts        proof/market transaction execution
+├── api/ws-server.ts           WebSocket transport and subscriptions
+└── api/test-controller.ts     TEST_MODE-only synthetic control plane
 ```
 
-## Event Processing Pipeline
+## Startup and recovery sequence
 
-```
-TxLINE SSE (raw string)
-  │
-  ▼
-event-parser.parseFootballEvent()
-  ├── JSON.parse(data)
-  ├── switch(Action)
-  │     goal → GoalEvent { participant, goalType }
-  │     corner → CornerEvent
-  │     yellow_card → YellowCardEvent
-  │     red_card → RedCardEvent
-  │     penalty → PenaltyAwardedEvent
-  │     penalty_outcome → PenaltyOutcomeEvent
-  │     var → VarCheckEvent
-  │     var_end → VarEndEvent
-  │     status → StatusChangeEvent
-  │     ... (18 action types total)
-  └── return FootballEvent (union type)
-  │
-  ▼
-fixture-watcher.processEvent(event, fixtureId)
-  ├── status → handleStatusChange (match_start, match_half, match_pe, match_end)
-  ├── goal → handleGoal (homeScore++ / awayScore++)
-  ├── score_adjustment → handleScoreAdjustment
-  └── emit FixtureWatcherEvents
-  │
-  ▼
-market-trigger.processEvent(event, fixtureId, matchState)
-    ├── goal → settle NextGoalSide + open new
-    ├── corner → settle NextCorner + open new
-    ├── yellow_card → settle NextYellowCard + open new
-    ├── red_card → settle RedCardInMatch
-    ├── penalty → open PenaltyShot
-    ├── penalty_outcome → settle PenaltyShot + shootout
-    ├── var → open VARCheck
-    ├── var_end → settle VARCheck
-    ├── status (FirstHalf) → open NextGoalSide + RedCardInMatch
-    ├── status (PenaltyShootout) → enter shootout mode
-    ├── status (FT/FET/FPE) → match end cleanup
-    └── emit TriggerAction[]
-      │
-  ├─► proof-gatherer.gatherProof(fixtureId, seq, statKey, period)
-  │     └── GET /stat-validation → StatValidationResult
-  │
-  └─► executeTriggerActions(actions)
-        ├── open_round → CLOB market init + lifecycle.open()
-        ├── settle_onchain → proof settlement queue + resolve_market_with_proof()
-        ├── settle_offchain → resolve_market_offchain()
-        └── confirm_round → confirm_market() / lifecycle state advance
-  │
-  ▼
-ws-server.broadcastToMatch(fixtureId, msg)
-  └── push to subscribed WebSocket clients
+```text
+1. loadConfig()
+2. construct WebSocket, TxLINE, Anchor, and SQLite services
+3. recover CLOB orders, books, fills, cursors, and markets
+4. reconcile pending market lifecycle actions with Solana
+5. restore fixture/market state into FixtureWatcher and MarketTrigger
+6. authenticate TxLINE and provision an API token when needed
+7. register TestController only when TEST_MODE=true
+8. start the WebSocket server
+9. load configured fixtures and start score/odds streams
+10. run cron windows and the 5-second timeout/recovery scheduler
 ```
 
-## Connection Lifecycle
+Recovery is scoped per market so one bad account does not prevent unrelated
+markets from being restored. Deferred recovery is logged and retried by the
+runtime where supported.
 
+## Event processing pipeline
+
+```text
+TxLINE SSE / replay payload
+  → clients/txline-client.ts
+  → infrastructure/txline/score-mapper.ts
+  → domain/football/event-parser.ts
+  → market/fixture-watcher.ts
+  → market/triggers.ts
+  → market/action-executor.ts
+       ├─ clob/lifecycle.ts
+       ├─ clob/settlement.ts
+       └─ settlement/crank.ts → clients/anchor-client.ts
+  → api/ws-server.ts
 ```
-TxLINE SSE
-  │
-  connect ───► authenticated ───► streaming ───► disconnect
-                  │                    │              │
-                  ▼                    ▼              ▼
-            heartbeat(30s)      exponential     reconnect
-            keepalive           backoff         after delay
-                                (1s–30s)        (infinite)
+
+The score mapper owns raw PascalCase/camelCase compatibility. The domain
+parser emits normalized `FootballEvent` values. Triggers emit `MarketCommand`
+values from `src/domain/markets.ts`; the executor persists intent and performs
+idempotent lifecycle work.
+
+## Market commands
+
+```text
+open_market
+resolve_market_onchain
+resolve_market_offchain
+confirm_market
 ```
 
-## Key Design Decisions
+The crank may expose `settle_onchain` and `settle_offchain` as status labels for
+backward-compatible WebSocket transaction reporting. They are not domain
+commands and must not be used as new trigger action names.
 
-| Decision | Rationale |
-|----------|-----------|
-| EventEmitter-based | Node.js native pattern, multiple consumers per event |
-| Durable state | SQLite persists CLOB markets, signed orders, fills, and nonce uniqueness; Solana remains authoritative for collateral and positions. |
-| Sequential action execution | Avoid nonce conflicts, simplify retry |
-| Exponential backoff | Don't hammer TxLINE on reconnect |
-| 5s timeout poll | Balance responsiveness vs CPU |
-| Top 5 fixtures only | Devnet cost + demo focus |
+## Connection lifecycle
+
+```text
+TxLINE authentication → SSE streaming → heartbeat/reconnect
+                                └→ monotonic cursor + replay normalization
+```
+
+The WebSocket server is independent of the TxLINE connection and can continue
+to publish durable CLOB state while the upstream stream reconnects.
+
+## Durable recovery model
+
+- SQLite stores signed orders, fills, nonces, markets, fixture cursors, and
+  pending lifecycle actions.
+- Solana is checked before retrying ambiguous fill or lifecycle work.
+- Fill reconciliation compares transaction status with on-chain
+  `Market.fill_sequence`.
+- An ambiguous transaction keeps its reservation until chain state proves the
+  fill failed.
+- Local lifecycle state is not advanced before the corresponding on-chain
+  transition is confirmed.
+
+## Current reliability boundaries
+
+This is a devnet/MVP relayer. Known hardening items include pre-trade on-chain
+collateral validation, chain-based reconciliation for all ambiguous
+transactions, proof-sequence durability across timeout/reconnect paths, and
+waiting for asynchronous work before a test reset completes.
