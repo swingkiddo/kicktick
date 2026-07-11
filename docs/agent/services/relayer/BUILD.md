@@ -8,133 +8,109 @@ depends_on:
 related_to:
   - relayer-streams
   - integration-environment
-tags: [build, run, scripts, dev]
+tags: [build, run, scripts, docker, dev]
 ---
 
 # Build, Run & Scripts
 
-## Quick Start
+All service builds and runtime launches use the repository scripts. Host-side
+execution is not the supported operational path.
+
+## Build and run
 
 ```bash
-cd relayer
-
-# Install
-npm install
-
-# Build (TypeScript compile)
-npm run build
-
-# Dev mode (ts-node)
-npm run dev
-
-# Production
-npm run start
+./scripts/build.sh relayer
+./scripts/run.sh relayer
 ```
 
-### Prerequisites
+Run detached when the frontend will be started separately:
 
-- Node.js 20+
-- Solana CLI keypair at `~/.config/solana/id.json` (or `SOLANA_KEYPAIR_PATH`); `SOLANA_PRIVATE_KEY` may also contain the hex secret key.
-- TxLINE JWT + API token (see `STREAMS.md`)
+```bash
+./scripts/run.sh relayer -d
+```
 
----
+The default container is `kicktick-relayer` and listens on port `8080`. SQLite
+is persisted under `relayer/data/` unless `CLOB_DB_PATH` is overridden.
+
+Run tests inside the running container:
+
+```bash
+docker exec -it kicktick-relayer npm test
+```
+
+The host-side `npm run dev`, `npm run build`, and `npm run start` commands are
+debugging internals, not the supported project workflow.
 
 ## Environment
 
-Copy `.env.example` → `.env`:
+The relayer loads the repository `.env` first and `relayer/.env` as an override.
 
-```bash
-TXLINE_JWT=<jwt_from_auth>
-TXLINE_API_TOKEN=<token_from_activation>
+```text
+TXLINE_JWT=
+TXLINE_API_TOKEN=
 TXLINE_API_HOST=https://txline-dev.txodds.com
 SOLANA_RPC_URL=https://api.devnet.solana.com
 SOLANA_KEYPAIR_PATH=~/.config/solana/id.json
-KICKTICK_PROGRAM_ID=HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg
+KICKTICK_PROGRAM_ID=7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4
 TXORACLE_PROGRAM_ID=6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J
-USDT_MINT=ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh
-TXL_MINT=4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG
 WS_PORT=8080
+CLOB_DB_PATH=/app/data/kicktick-clob.sqlite
+TEST_MODE=false
 ```
 
----
+The private key may also be supplied as `SOLANA_PRIVATE_KEY` in hex. Never
+commit either key form.
 
-## Scripts
+## IDL flow
 
-### CPI Spike Test
+The contracts build produces:
+
+```text
+kicktick/target/idl/kicktick.json
+```
+
+`./scripts/build.sh relayer` copies it to:
+
+```text
+relayer/src/idl/kicktick.json
+```
+
+`src/clients/anchor-client.ts` loads the copied file at runtime and overrides
+its address with the configured KickTick program ID.
+
+## Diagnostic scripts
+
+Run these inside the relayer container when needed:
 
 ```bash
-npx ts-node src/scripts/cpi-spike.ts
+docker exec -it kicktick-relayer npx ts-node src/scripts/cpi-spike.ts
+docker exec -it kicktick-relayer npx ts-node src/scripts/verify-tokens.ts
 ```
 
-Validates `validate_stat` CPI feasibility:
-1. Guest auth with TxLINE
-2. Fetch World Cup fixtures
-3. Fetch scores updates + stat validation proof
-4. Inspect proof structure (statProof, fixtureProof, mainTreeProof)
-5. Derive PDAs (`daily_scores_roots`)
-6. Verify program existence on devnet
+The CPI spike checks TxOracle proof feasibility. Token verification checks the
+devnet TxL and USDT mint accounts. Neither script is part of normal startup.
 
-### Token Verification
+## Wallet order runner
+
+The repository runner mounts `kicktick/scripts/wallets` read-only and sets
+`TEST_WALLETS_DIR` inside the container:
 
 ```bash
-npx ts-node src/scripts/verify-tokens.ts
+TEST_MARKET=<market-pda> \
+TEST_WALLETS=wallet-01.json,wallet-02.json \
+./scripts/run.sh test-runner
 ```
 
-Checks TxL (Token-2022) and USDT (Token) mint existence on devnet.
+The variables must be supplied through the relayer environment file or a
+container-compatible environment configuration. `TEST_MARKET` is required;
+`TEST_WALLETS`, `TEST_WS_URL`, `TEST_QUANTITY`, and `TEST_PRICE_BPS` are
+optional.
 
----
+## Debugging
 
-## Project Scripts (package.json)
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | `ts-node src/index.ts` — run with hot reload |
-| `npm run build` | `tsc` — compile to `dist/` |
-| `npm run start` | `node dist/index.js` — run compiled |
-
----
-
-## Output Structure
-
-```
-dist/
-├── config.js
-├── index.js
-├── clients/       txline-auth, txline-client, anchor-client
-├── market/        event-parser, fixture-watcher, triggers
-├── settlement/    proof-gatherer, crank
-├── api/           ws-server
-└── scripts/       cpi-spike, verify-tokens
-```
-
----
-
-## Debug
-
-### Logs
-
-Relayer outputs structured console logs:
-
-```
-╔══════════════════════════════════════════╗
-║       KickTick Relayer v0.1.0            ║
-╚══════════════════════════════════════════╝
-  Solana RPC:      https://api.devnet.solana.com
-  Keypair:         ~/.config/solana/id.json
-  KickTick PID:    HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg
-  WS Port:         8080
-```
-
-### Common Issues
-
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| `No TxLINE credentials` | Missing JWT/token | Set `TXLINE_JWT` + `TXLINE_API_TOKEN` |
-| `StatValidation returned null` | Proof not available | Verify fixtureId + seq are correct |
-| `Transaction failed` | CU budget, nonce, or account | Check logs, increase CU limit |
-| `Heartbeat timeout` | SSE stream disconnected | Check network, auto-reconnect handles this |
-| IDL not found | `kicktick.json` missing | Build anchor program first (`anchor build`) |
-
-### IDL Path
-
-The relayer loads the Anchor IDL from `kicktick/target/idl/kicktick.json` (relative from `dist/clients/anchor-client.js`). Ensure the program is built before running the relayer.
+- `docker logs -f kicktick-relayer` shows startup, recovery, and SSE logs.
+- Timestamped raw SSE logs are written under `relayer/logs/`.
+- `relayer/data/` contains durable CLOB and lifecycle state; do not delete it
+  while investigating recovery.
+- If the IDL is stale, build contracts first and rebuild the relayer image.
+- Missing TxLINE credentials trigger guest-auth fallback with limited access.

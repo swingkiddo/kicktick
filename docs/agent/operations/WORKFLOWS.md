@@ -8,147 +8,107 @@ depends_on:
 related_to:
   - program-instructions
   - operations-troubleshooting
-tags: [workflows, deploy, test, debug]
+tags: [workflows, deploy, test, debug, clob]
 ---
 
 # KickTick — Agent Workflows
 
-> Common scenarios an agent will execute during development.
+## 1. Build and deploy the program
 
----
-
-## 1. Full Deploy Cycle (Docker → Devnet)
+All builds and deployments use Docker-backed repository scripts:
 
 ```bash
-# 1. Build Docker image
 ./scripts/build.sh contracts
-
-# 2. Deploy (Docker-based, sets --with-compute-unit-price 10000)
-./scripts/deploy.sh
-
-# 3. Update program ID in:
-#    - programs/kicktick/src/lib.rs:8
-#    - frontend/lib/constants.ts:10
-#    - relayer/.env (KICKTICK_PROGRAM_ID)
-
-# 4. Run tests
-anchor test --skip-deploy
+./scripts/deploy.sh devnet
 ```
 
-**Key files changed:**
-- `lib.rs:8` — `declare_id!("...")`
-- `frontend/lib/constants.ts:10` — `kicktickProgramId`
-- `relayer/src/config.ts:27` — `KICKTICK_PROGRAM_ID` env
+The deploy workflow builds the contracts image when needed, deploys the
+program ID from `kicktick/target/deploy/kicktick-keypair.json`, and runs the
+idempotent Config initialization using the repository-root `keypair.json`.
 
-See [program/DEPLOY.md](../services/program/DEPLOY.md) for full details.
+After a program ID change, keep these current for the scoped backend:
 
----
+- `kicktick/programs/kicktick/src/lib.rs`;
+- `kicktick/Anchor.toml`;
+- `relayer/config/constants.json`;
+- `KICKTICK_PROGRAM_ID` in the relayer environment, when overridden.
 
-## 2. Add New Market Type
-
-**Current Phase 1 market types** (in `state/round.rs:6-19`):
-```rust
-// On-chain (CPI validate_stat)
-NextGoalSide, GoalInWindow, NextCorner, CornerInWindow,
-NextYellowCard, YellowCardInWindow, RedCardInMatch, PenaltyShootoutShot
-
-// Off-chain (relayer sets outcome)
-PenaltyShot, VARCheck
-```
-
-**To add a new type:**
-1. Add variant to `MarketType` enum in `state/round.rs`
-2. Add statKey mapping in `settle_round` handler
-3. Add test case in `tests/kicktick.ts`
-
----
-
-## 3. Add New Instruction
-
-**Pattern (follow existing 10 instructions in `instructions/`):**
-
-```rust
-// 1. Define accounts struct in instructions/<name>.rs
-#[derive(Accounts)]
-pub struct MyNewInstruction<'info> { ... }
-
-// 2. Add handler
-pub fn handler(ctx: Context<...>, ...) -> Result<()> { ... }
-
-// 3. Re-export in instructions/mod.rs
-pub mod my_new;
-pub use my_new::*;
-
-// 4. Wire in lib.rs program function
-pub fn my_new( ... ) -> Result<()> {
-    instructions::my_new::handler(ctx, ...)
-}
-```
-
----
-
-## 4. CPI Integration (for Phase 1 settlement)
-
-**Implemented:** `settle_round` calls `txoracle::cpi::validate_stat` with `stat_a`, `stat_b`, `predicate`, proof accounts.
-
-**Accounts needed:**
-- `txoracle_program` — TxOracle program ID
-- `daily_scores_merkle_roots` — TxOracle PDA `["daily_scores_merkle_roots"]`
-- `daily_odds_merkle_roots` — TxOracle PDA `["daily_odds_merkle_roots", epochDay]`
-- Proof accounts (item trees, main tree)
-
-**Validated by:** `relayer/src/cpi-spike.ts` — full proof format documented.
-
----
-
-## 5. Test a Market Lifecycle
+## 2. Run the Anchor test suite
 
 ```bash
-# Run Anchor tests
-anchor test --skip-deploy
-
-# Or via yarn
-cd kicktick && yarn test
+./scripts/run.sh contracts
+docker exec -it kicktick-contracts bash
+npm test
 ```
 
-**Test flow** (`kicktick/tests/kicktick.ts`):
-1. init_config (bootstrap Config PDA)
-2. init_match (fixture, home/away teams)
-3. open_round (MarketType, lock/deadline)
-4. place_bet YES (native SOL)
-5. settle_offchain round (VARCheck, winner=1)
-6. claim_winnings for YES winner
-7. Verify: round.winner - 1 maps to position.side (0=YES,1=NO,2=abstain)
+The shared test setup starts a fresh local validator, deploys the program,
+initializes Config, and exposes a provider to the test files. The current tests
+cover user collateral, market lifecycle, voiding, complete-set settlement,
+share trades, positions, and fill sequences.
 
-**To add test for new market types:**
-- Create fixture with specific `market_type`
-- Place bets
-- Settle with `settle_odds_value` that triggers YES/NO
-- Assert expected outcome
+For a devnet smoke test, use a separate scenario that connects to the deployed
+program and creates unique fixture/market IDs. Do not run the localnet setup
+against devnet: it resets a validator and deploys a fresh program.
 
----
+## 3. Add a market type
 
-## 6. Debug Transaction Failure
+1. Add the variant to `programs/kicktick/src/state/market.rs`.
+2. Update `Market::outcome_count_for` and `Market::requires_oracle`.
+3. Add or update oracle stat/predicate mapping in
+   `programs/kicktick/src/instructions/settle_round.rs`.
+4. Add the matching relayer definition and trigger behavior in
+   `relayer/src/domain/markets.ts` and `relayer/src/market/triggers.ts`.
+5. Add Anchor coverage in `kicktick/tests/market.ts` and settlement coverage
+   where the new type changes CLOB behavior.
 
-**Common error codes (Anchor errors):**
+## 4. Add an instruction
 
-| Code | Name | Likely cause | Fix |
-|------|------|-------------|-----|
-| 6003 | `InvalidFixtureId` | fixture_id <= 0 | Pass positive fixture_id |
-| 6004 | `InvalidDuration` | lock/deadline not in 15-300 | Check args |
-| 6005 | `RoundNotOpen` | round not Open | Check round.status |
-| 6006 | `DeadlinePassed` | now >= expires_at | Create longer round |
-| 6007 | `ZeroAmount` | amount = 0 | Pass amount > 0 |
-| 6008 | `InvalidSide` | side > 2 | Use 0/1/2 |
-| 6011 | `AlreadyClaimed` | double claim | Check position.claimed |
-| 6012 | `NotWinner` | wrong outcome side | Check winner mapping (winner-1 = side) |
-| 6013 | `FinalityDelayNotMet` | confirm too early | Wait 60s after settle |
+1. Define the `#[derive(Accounts)]` context and handler in the appropriate
+   `programs/kicktick/src/instructions/` module.
+2. Re-export the module from `instructions/mod.rs`.
+3. Wire the public instruction into `programs/kicktick/src/lib.rs`.
+4. Update `program/INSTRUCTIONS.md`, the IDL-dependent relayer client, and
+   tests in the same change.
 
-**Debug commands:**
+## 5. Oracle settlement flow
+
+For oracle-backed markets:
+
+```text
+TxLINE score sequence
+  → relayer proof-gatherer
+  → ValidateStatArgs
+  → resolve_market_with_proof
+  → TxOracle validate_stat CPI
+  → Market ResolvedPending
+  → confirm_market
+```
+
+`daily_scores_merkle_roots` is the TxOracle PDA
+`["daily_scores_merkle_roots"]`. Proof sequence and market oracle parameters
+must remain separate: `market_seq` identifies the market, while the TxLINE
+sequence identifies the score record being proven.
+
+## 6. CLOB settlement flow
+
+```text
+wallet-signed orders
+  → relayer matching engine
+  → durable fill record
+  → settle_complete_set_binary/ternary or settle_share_trade
+  → on-chain fill_sequence increment
+```
+
+The program does not expose a direct `place_bet` instruction. CLOB orders are
+matched off-chain and the relayer applies validated fills on-chain.
+
+## 7. Debug a transaction failure
+
 ```bash
-# Check account data
-solana account <PDA> --output json --url devnet
-
-# Get program logs
 solana confirm -v <TX_SIGNATURE> --url devnet
+solana logs --url devnet
+solana account <PDA> --output json --url devnet
 ```
+
+For relayer issues, inspect `docker logs -f kicktick-relayer`, the durable
+database under `relayer/data/`, and the saved SSE logs under `relayer/logs/`.

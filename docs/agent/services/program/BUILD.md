@@ -16,20 +16,24 @@ tags: [build, test, debug]
 
 ## Build
 
+Builds are performed through the repository scripts:
+
 ```bash
-anchor build
+./scripts/build.sh contracts
 ```
+
+The contracts image contains the Anchor toolchain. Use the contracts container
+for interactive diagnostics when needed.
 
 ### Update Program ID
 
 After build, update program ID in 4 places:
 
-| File | Line | Field |
+| File | Field |
 |------|------|-------|
-| `programs/kicktick/src/lib.rs` | 8 | `declare_id!("...")` |
-| `frontend/lib/constants.ts` | 10 | `kicktickProgramId` |
-| `relayer/.env` | — | `KICKTICK_PROGRAM_ID` |
-| `kicktick/Anchor.toml` | 8 | `kicktick = "..."` |
+| `programs/kicktick/src/lib.rs` | `declare_id!("...")` |
+| `relayer/config/constants.json` or relayer `.env` | `kicktickProgramId` / `KICKTICK_PROGRAM_ID` |
+| `Anchor.toml` | `[programs.localnet]` and `[programs.devnet]` |
 
 ---
 
@@ -41,26 +45,31 @@ See [DEPLOY.md](./DEPLOY.md) for deployment instructions.
 
 ## Test
 
+Run tests through the contracts container. The repository test setup starts a
+fresh local validator, deploys the program, initializes Config, and shares the
+provider with the test files.
+
 ```bash
-anchor test --skip-deploy
+./scripts/run.sh contracts
+docker exec -it kicktick-contracts bash
+npm test
 ```
 
-### Test Flow (`kicktick/tests/kicktick.ts`, 255 lines)
+### Test coverage
 
-1. `init_config` — bootstrap Config PDA
-2. `init_match` — create fixture with home/away teams
-3. `open_round` — open market with MarketType, lock/deadline seconds
-4. `place_bet` — bet YES with native SOL
-5. `settle_offchain_round` — settle VARCheck round (winner=1 for YES)
-6. `claim_winnings` — claim for YES winner
-7. Verify: `round.winner - 1` maps to `position.side` (0=YES, 1=NO, 2=abstain)
+- `tests/kicktick.ts` covers Config, user accounts, deposits, and withdrawals.
+- `tests/market.ts` covers market initialization, locking, off-chain resolution,
+  confirmation, voiding, and lifecycle errors.
+- `tests/standalone-validator.ts` covers 20-wallet deposits, complete-set
+  binary settlement, share trades, positions, volume, and fill sequence.
 
 ### Adding Tests for New Market Types
 
-- Create fixture with specific `market_type`
-- Place bets on both sides
-- Settle with appropriate outcome
-- Assert expected winner and payout
+- Create a unique fixture ID and market sequence.
+- Use `initMarket` with the desired `MarketType` and `MarketParams`.
+- Use complete-set or share-trade settlement for CLOB behavior.
+- Resolve with an oracle proof or `resolveMarketOffchain` as appropriate.
+- Assert Market status, winner, shares, collateral, volume, and fill sequence.
 
 ---
 
@@ -72,13 +81,16 @@ anchor test --skip-deploy
 |------|------|-------------|-----|
 | 6003 | `InvalidFixtureId` | fixture_id <= 0 | Pass positive fixture_id |
 | 6004 | `InvalidDuration` | lock/deadline not in 15-300s | Check args within range |
-| 6005 | `RoundNotOpen` | round status not Open | Check round.status before betting |
-| 6006 | `DeadlinePassed` | now >= expires_at | Create round with longer deadline |
+| — | `MarketNotOpen` | market status is not Open | Check `market.status` before locking or trading |
+| — | `MarketNotLocked` | market is not Locked | Lock before resolution |
+| — | `MarketNotResolved` | resolution state is missing | Resolve before confirmation or cleanup |
+| — | `UnauthorizedRelayer` | signer is not Config relayer | Check Config.relayer |
+| — | `InvalidFillSequence` | fill is not next in sequence | Reconcile on-chain market state |
 | 6007 | `ZeroAmount` | amount = 0 | Pass amount > 0 |
-| 6008 | `InvalidSide` | side > 2 | Use 0 (YES), 1 (NO), or 2 (abstain) |
-| 6011 | `AlreadyClaimed` | double claim attempt | Check position.claimed before claiming |
-| 6012 | `NotWinner` | wrong outcome side | Check winner mapping: winner-1 = side |
-| 6016 | `FinalityDelayNotMet` | confirm too early | Wait 60s after settle before confirm |
+| — | `InvalidOutcomeIndex` | outcome index is outside market range | Use `0..outcome_count` |
+| — | `AlreadyClaimed` | position was already claimed | Check `position.claimed` |
+| — | `NotWinner` | cleanup called for a winning position | Claim winners; clean losers |
+| — | `InsufficientBalance` | user collateral is unavailable | Deposit or wait for a release |
 
 ### Debug Commands
 
@@ -95,10 +107,10 @@ solana logs --url devnet
 
 ### CPI Debug
 
-For `settle_round` CPI failures:
+For `resolve_market_with_proof` CPI failures:
 - Verify txoracle program exists on devnet: `solana program show 6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J --url devnet`
 - Check proof accounts match txoracle PDA seeds
-- Run CPI spike test: `cd relayer && npx ts-node src/cpi-spike.ts`
+- Run the CPI spike inside the relayer container when debugging TxOracle integration.
 
 ---
 
@@ -128,7 +140,7 @@ pub fn my_new(ctx: Context<MyNewInstruction>, ...) -> Result<()> {
 
 ## Add New Market Type
 
-Current types in `state/round.rs:6-19`:
+Current types in `state/market.rs`:
 
 ```rust
 // On-chain (CPI validate_stat)
@@ -140,6 +152,9 @@ PenaltyShot, VARCheck
 ```
 
 To add:
-1. Add variant to `MarketType` enum in `state/round.rs`
-2. Add statKey mapping in `settle_round` handler
-3. Add test case in `tests/kicktick.ts`
+1. Add a variant to `MarketType` in `state/market.rs`.
+2. Update `Market::outcome_count_for` and `requires_oracle`.
+3. Add the stat/predicate mapping in `instructions/settle_round.rs` if it is
+   oracle-backed.
+4. Update the relayer market definitions/triggers.
+5. Add coverage to `tests/market.ts` and settlement coverage if needed.

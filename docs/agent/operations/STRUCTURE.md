@@ -37,7 +37,7 @@ tags: [structure, files, tree]
 ### Root config
 | Path | Purpose |
 |------|---------|
-| `Anchor.toml` | Devnet cluster, program ID `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` |
+| `Anchor.toml` | Localnet/devnet cluster config, program ID `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` |
 | `Cargo.toml` | Workspace root — Anchor 1.0.0, borsh |
 | `Cargo.lock` | Dependency lock |
 | `rust-toolchain.toml` | Rust 1.96.0 |
@@ -45,35 +45,27 @@ tags: [structure, files, tree]
 ### `programs/kicktick/` — On-Chain Program
 | Path | Lines | Purpose |
 |------|-------|---------|
-| `src/lib.rs` | 140 | Module router — wires 10 instructions, 5 state PDAs |
-| `src/constants.rs` | 48 | Seeds, limits, StatKeys, CPI discriminator |
-| `src/errors.rs` | 102 | 25 KickTickError codes |
-| `src/state/` | 5 files | PDAs: Config, Match_, Round, Position, SponsorVault |
-| `src/instructions/` | 10 files | Instruction handlers + mod.rs |
+| `src/lib.rs` | — | Module router — wires the current Market/CLOB instruction surface |
+| `src/constants.rs` | — | Seeds, limits, StatKeys, CPI discriminator |
+| `src/errors.rs` | — | KickTickError definitions |
+| `src/state/` | 6 files | Config, Match_, Market, Position, UserAccount, SponsorVault |
+| `src/instructions/` | — | Config, match, market, user, trade, oracle, and redemption handlers |
 
-#### PDAs
-- `Config` — admin, txoracle id, min liquidity
-- `Match_` — fixture_id, teams, vault_bump, round_counter, totals
-- `Round` — market_type, params, status, outcome, totals, winner
-- `Position` — owner, fixture_id, round_id, side, amount, claimed
-- `SponsorVault` — global sponsor liquidity
-- `MatchVault` — system-owned SOL vault per match (not an Anchor account)
+#### Accounts
+- `Config` — admin, relayer, TxOracle roots, compatibility settings
+- `Match_` — fixture ID, teams, match status, retained aggregate fields
+- `UserAccount` / `UserVault` — available and reserved user collateral
+- `Market` — market type, sequence, lifecycle, collateral, volume, fill sequence
+- `Position` — outcome shares, locked shares, claim state
+- `MarketVault` — system-owned SOL vault per market
+- `SponsorVault` — retained compatibility account
 
-#### Instructions (10)
-1. `init_config` — bootstrap Config PDA
-2. `init_match` — create match + system-owned vault
-3. `open_round` — open market/round on match
-4. `place_bet` — SOL bet on round side
-5. `settle_round` — on-chain CPI settlement
-6. `settle_offchain_round` — relayer sets outcome
-7. `confirm_round` — finalize settlement immediately
-8. `claim_winnings` / `refund_bet` — payout or refund
-9. `cancel_round` — void open round
-10. `challenge_equivocation` — void settled round
-
-#### Sponsor (2)
-- `fund_sponsor` — deposit SOL into SponsorVault (+ match_vault for rent)
-- `sponsor_round` — allocate sponsor liquidity to round
+#### Instructions
+`init_config`, `init_match`, `set_relayer`, `init_user`, `deposit`, `withdraw`,
+`init_market`, `lock_market`, `resolve_market_offchain`,
+`resolve_market_with_proof`, `confirm_market`, `void_market`,
+`settle_complete_set_binary`, `settle_complete_set_ternary`,
+`settle_share_trade`, `claim`, `cleanup_position`, and `close_market_vault`.
 
 ### `client/` — TypeScript SDK (removed)
 
@@ -82,7 +74,9 @@ The `client/` directory previously contained a TypeScript SDK (`market-manager.t
 ### `tests/`
 | Path | Lines | Purpose |
 |------|-------|---------|
-| `kicktick.ts` | 208 | Native SOL test suite: init_match → open_round → place_bet → settle → claim |
+| `kicktick.ts` | — | Config, user collateral, deposit and withdrawal tests |
+| `market.ts` | — | Market lifecycle, resolution, confirmation and void tests |
+| `standalone-validator.ts` | — | Multi-wallet deposits, complete sets and share trades |
 
 ---
 
@@ -94,16 +88,20 @@ The `client/` directory previously contained a TypeScript SDK (`market-manager.t
 | `tsconfig.json` | - | TS config |
 | `.env.example` | - | Env template (JWT, API token, RPC, keypair, program IDs) |
 | `src/config.ts` | 45 | `loadConfig()` — env-based config with defaults |
-| `src/index.ts` | 178 | Main loop wiring |
+| `src/index.ts` | — | Runtime composition, recovery, streams, schedulers and shutdown |
 | `src/clients/txline-auth.ts` | 138 | `authenticateGuest()`, `activateApiToken()`, `testConnection()` |
 | `src/clients/txline-client.ts` | 185 | SSE scores/odds stream with reconnection |
 | `src/clients/anchor-client.ts` | 426 | Solana Anchor tx builder |
-| `src/market/event-parser.ts` | 553 | SSE → typed FootballEvent + MarketType mapping |
-| `src/market/fixture-watcher.ts` | 283 | Match state tracking, PDA derivation |
-| `src/market/triggers.ts` | 593 | Rules engine: event-triggered + cron windows |
+| `src/domain/football/event-parser.ts` | — | Normalized score event → FootballEvent |
+| `src/infrastructure/txline/score-mapper.ts` | — | Raw TxLINE payload normalization |
+| `src/market/fixture-watcher.ts` | — | Match state reduction |
+| `src/market/triggers.ts` | — | MarketCommand rules: event-triggered + cron windows |
+| `src/market/action-executor.ts` | — | Durable lifecycle execution and recovery |
+| `src/clob/` | — | Store, matching, lifecycle, settlement, recovery, WebSocket API |
 | `src/settlement/proof-gatherer.ts` | 208 | Merkle proof fetcher from TxLINE |
 | `src/settlement/crank.ts` | 284 | Build + send Solana txs with retry |
-| `src/api/ws-server.ts` | 168 | WebSocket push for frontend |
+| `src/api/ws-server.ts` | — | WebSocket transport and fixture/market subscriptions |
+| `src/api/test-controller.ts` | — | TEST_MODE-only synthetic match/market/event control |
 | `src/scripts/cpi-spike.ts` | 456 | CPI spike test — validate_stat feasibility |
 | `src/scripts/verify-tokens.ts` | 75 | TxL + USDT mint verification |
 

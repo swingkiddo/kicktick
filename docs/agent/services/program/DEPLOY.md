@@ -20,7 +20,7 @@ tags: [deploy, devnet, mainnet, docker, priority-fee]
 |-------------|---------|
 | Docker | Build and run deployment environment |
 | SOL on deployer wallet | Pay for program account + tx fees |
-| `kicktick/kicktick-deployer.json` | Deployer keypair |
+| Repository-root `keypair.json` | Deployer keypair mounted into the Docker deploy container |
 
 Get devnet SOL: `solana airdrop 2 --url devnet`
 
@@ -70,12 +70,13 @@ The deploy script performs two checks to avoid redundant operations:
 ## What Happens
 
 1. **Build Docker image** (if not exists) via `scripts/build.sh contracts`
-2. **Get program ID** from `target/deploy/kicktick-keypair.json`
+2. **Get program ID** from `kicktick/target/deploy/kicktick-keypair.json`
 3. **Check program status** on target network
 4. **Build & deploy** inside Docker container:
    - `anchor build`
    - `solana program deploy target/deploy/kicktick.so --program-id target/deploy/kicktick-keypair.json --url <network> --with-compute-unit-price <fee>`
-5. **Initialize Config PDA** via `scripts/init-kicktick.ts` (idempotent)
+5. **Initialize Config PDA** via `scripts/init-kicktick.ts` using the mounted
+   repository-root `keypair.json` (idempotent)
 6. **Save deployment info** to `deployment-<network>.json`
 
 ---
@@ -99,9 +100,10 @@ After first deploy, update program ID in 4 places:
 | File | Line | Field |
 |------|------|-------|
 | `programs/kicktick/src/lib.rs` | 8 | `declare_id!("...")` |
-| `frontend/lib/constants.ts` | 10 | `kicktickProgramId` |
-| `relayer/.env` | — | `KICKTICK_PROGRAM_ID` |
-| `kicktick/Anchor.toml` | 8 | `kicktick = "..."` |
+| `programs/kicktick/src/lib.rs` | `declare_id!("...")` |
+| `relayer/config/constants.json` | `kicktickProgramId` |
+| `relayer/.env` | `KICKTICK_PROGRAM_ID` override, if present |
+| `Anchor.toml` | `[programs.localnet]` and `[programs.devnet]` |
 
 ---
 

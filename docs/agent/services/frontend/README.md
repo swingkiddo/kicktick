@@ -19,3 +19,5 @@ The wallet UI always requests `cancel_all` before a standard withdrawal. Market 
 Build with `./scripts/build.sh frontend`. Build contracts first after an IDL change so the script can copy `target/idl/kicktick.json` into `frontend/public/idl/`.
 
 See [CLOB Architecture & Operations](../../CLOB.md) for the signed-message protocol, WebSocket commands, and recovery procedure.
+
+When the relayer runs with `TEST_MODE=true`, the admin page exposes a dev-only test control panel. It signs the test-admin challenge with the connected contract-admin wallet and can create synthetic matches/markets and inject football events. JSON test keypairs remain outside the browser and are used by `./scripts/run.sh test-runner`.
