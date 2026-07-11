@@ -128,7 +128,7 @@ export class ClobStore {
 
   clearForTest(): void {
     this.db.transaction(() => {
-      this.db.exec("DELETE FROM fills; DELETE FROM orders; DELETE FROM nonces; DELETE FROM markets;");
+      this.db.exec("DELETE FROM market_actions; DELETE FROM fills; DELETE FROM orders; DELETE FROM nonces; DELETE FROM fixture_cursors; DELETE FROM markets;");
     })();
   }
 

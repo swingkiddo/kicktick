@@ -129,6 +129,17 @@ async function main(): Promise<void> {
   }
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
   const marketTrigger = new MarketTrigger();
+  const restoredPdas = new Map<number, string>();
+  for (const market of clobStore.listMarkets()) {
+    const fixtureId = Number(market.fixture_id);
+    restoredPdas.set(fixtureId, AnchorClient.deriveMatchPda(fixtureId, config.kicktickProgramId)[0].toBase58());
+  }
+  const restoredCursors = new Map<number, number>();
+  for (const fixture of clobStore.listMarkets().map(m => Number(m.fixture_id))) {
+    const cursor = clobStore.getFixtureCursor(String(fixture));
+    if (cursor) restoredCursors.set(fixture, cursor.last_seq);
+  }
+  marketTrigger.restoreMarkets(clobStore.listMarkets(), restoredPdas, restoredCursors);
   const sseLogger = new SseLogger(
     path.resolve(__dirname, `../logs/sse-${new Date().toISOString().replace(/[:.]/g, "-")}.log`),
   );
@@ -316,14 +327,15 @@ async function main(): Promise<void> {
     await Promise.all(fixturesToReplay.map(async (state) => {
       try {
         const updates = await txlineClient.getScoresUpdates(state.fixtureId);
-        for (const update of updates.sort((a, b) => a.seq - b.seq)) {
+        for (const update of updates
+          .filter((candidate) => Number.isSafeInteger(candidate.seq) && candidate.seq > 0)
+          .sort((a, b) => a.seq - b.seq)) {
           if (!clobStore.advanceFixtureCursor(String(state.fixtureId), update.seq)) continue;
           const reconciled = fixtureWatcher.applyScoreUpdate(update);
           if (!reconciled) continue;
           broadcastMatchState(reconciled.state);
-          for (const event of reconciled.events) {
-            marketTrigger.processEvent(event, state.fixtureId, reconciled.state);
-          }
+          // Replay reconstructs the current score state only. Historical
+          // events must not create and submit a second lifecycle of markets.
         }
       } catch (error) {
         console.warn(`Score replay failed for fixture ${state.fixtureId}:`, error instanceof Error ? error.message : error);
@@ -404,10 +416,10 @@ async function main(): Promise<void> {
       } catch (err) {
         console.error(`Timeout check error [${fixtureId}]:`, err instanceof Error ? err.message : err);
       }
-      marketActions.recover(anchorClient).catch((error) => {
-        console.warn("Periodic market lifecycle recovery failed:", error instanceof Error ? error.message : error);
-      });
     }
+    marketActions.recover(anchorClient).catch((error) => {
+      console.warn("Periodic market lifecycle recovery failed:", error instanceof Error ? error.message : error);
+    });
   }, 5000);
 
   const cronTimer = setInterval(() => {

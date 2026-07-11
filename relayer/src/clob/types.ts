@@ -70,7 +70,7 @@ export interface MarketActionRecord {
   id: string;
   fixture_id: string;
   market: string;
-  action_type: "RESOLVE_ONCHAIN" | "RESOLVE_OFFCHAIN" | "CONFIRM";
+  action_type: "OPEN" | "RESOLVE_ONCHAIN" | "RESOLVE_OFFCHAIN" | "CONFIRM";
   payload_json: string;
   status: MarketActionStatus;
   attempts: number;

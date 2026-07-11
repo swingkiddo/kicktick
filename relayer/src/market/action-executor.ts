@@ -56,20 +56,31 @@ export class MarketActionExecutor {
 
   private async recoverNow(reader: MarketStateReader): Promise<void> {
     for (const market of this.store.listMarkets()) {
-      const state = await reader.getMarketState(market.market);
-      this.lifecycle.reconcile(market.market, state);
+      try {
+        const state = await reader.getMarketState(market.market);
+        this.lifecycle.reconcile(market.market, state);
+      } catch (error) {
+        console.warn(`market recovery skipped ${market.market}:`, error instanceof Error ? error.message : error);
+      }
     }
 
     const actions = this.store.listMarketActions();
     for (const record of actions) {
-      const chainState = await reader.getMarketState(record.market);
+      let chainState: MarketRecord["state"];
+      try { chainState = await reader.getMarketState(record.market); }
+      catch (error) {
+        console.warn(`action recovery skipped ${record.id}:`, error instanceof Error ? error.message : error);
+        continue;
+      }
       const action = JSON.parse(record.payload_json) as TriggerAction;
       const completed = record.action_type === "CONFIRM"
         ? chainState === "RESOLVED"
+        : record.action_type === "OPEN"
+          ? chainState === "OPEN"
         : chainState === "RESOLVED_PENDING" || chainState === "RESOLVED";
       if (completed) {
         this.store.updateMarketAction(record.id, "CONFIRMED");
-        if (record.action_type !== "CONFIRM" && chainState === "RESOLVED_PENDING") {
+        if (record.action_type !== "CONFIRM" && record.action_type !== "OPEN" && chainState === "RESOLVED_PENDING") {
           await this.enqueue([{
             ...(action as Extract<TriggerAction, { type: "resolve_market_onchain" | "resolve_market_offchain" }>),
             type: "confirm_market",
@@ -114,7 +125,6 @@ export class MarketActionExecutor {
     const existing = this.store.getMarket(market);
     if (existing) return;
 
-    await this.crank.executeAction(action);
     this.lifecycle.open({
       market,
       fixture_id: String(action.fixtureId),
@@ -124,6 +134,16 @@ export class MarketActionExecutor {
       expires_at: Math.floor(Date.now() / 1000) + action.deadlineSeconds,
       state: "OPEN",
     });
+    const actionId = `${market}:open_market`;
+    this.store.insertMarketAction({ id: actionId, fixture_id: String(action.fixtureId), market, action_type: "OPEN", payload_json: JSON.stringify(action), status: "PENDING" });
+    this.store.markMarketActionRunning(actionId);
+    try {
+      await this.crank.executeAction(action);
+      this.store.updateMarketAction(actionId, "CONFIRMED");
+    } catch (error) {
+      this.store.updateMarketAction(actionId, "FAILED", error instanceof Error ? error.message : String(error));
+      throw error;
+    }
     this.changed(market);
   }
 
@@ -178,7 +198,7 @@ export class MarketActionExecutor {
     id: string,
     market: MarketRecord,
     action: TriggerAction,
-    actionType: "RESOLVE_ONCHAIN" | "RESOLVE_OFFCHAIN" | "CONFIRM",
+    actionType: "OPEN" | "RESOLVE_ONCHAIN" | "RESOLVE_OFFCHAIN" | "CONFIRM",
   ): void {
     const existing = this.store.getMarketAction(id);
     if (existing) {
