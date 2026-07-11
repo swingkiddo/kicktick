@@ -4,15 +4,15 @@
 resolution = true
 skip-lint = false
 
-[programs.devnet]
-kicktick = "HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg"
-
 [programs.localnet]
-kicktick = "CCmcpUZttSJqUabxBcyvHp4uC89EkrXce5YSEvRgE7tc"
+kicktick = "7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4"
+
+[programs.devnet]
+kicktick = "7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4"
 
 [provider]
 cluster = "devnet"
-wallet = "~/.config/solana/id.json"
+wallet = "kicktick-deployer.json"
 
 [scripts]
 test = "npm run test"
