@@ -112,7 +112,7 @@ export class TestController {
     const next = this.options.watcher.processEvent(event, data.fixtureId);
     if (!next) throw new Error(`failed to process event for fixture ${data.fixtureId}`);
     this.broadcastMatch(next);
-    this.ws.broadcast({ type: "football_event", data: { action: data.action, fixtureId: data.fixtureId, participant: data.participant, description: `test ${data.action} on fixture ${data.fixtureId}` } });
+    this.ws.broadcastToMatch(data.fixtureId, { type: "football_event", data: { action: data.action, fixtureId: data.fixtureId, participant: data.participant, description: `test ${data.action} on fixture ${data.fixtureId}` } });
     this.options.trigger.processEvent(event, data.fixtureId, next);
     send(ws, "test_ack", { command: "test_emit_event", fixtureId: data.fixtureId, action: data.action });
   }
@@ -126,6 +126,6 @@ export class TestController {
   private fail(ws: WebSocket, error: unknown): void { send(ws, "test_error", { message: error instanceof Error ? error.message : String(error) }); }
 
   private broadcastMatch(state: ReturnType<FixtureWatcher["getFixtureState"]> & object): void {
-    this.ws.broadcast({ type: "match_state", data: { fixtureId: state.fixtureId, status: String(state.status), homeScore: state.homeScore, awayScore: state.awayScore, currentPeriod: state.currentPeriod, matchClockMs: state.matchClockMs } });
+    this.ws.broadcastToMatch(state.fixtureId, { type: "match_state", data: { fixtureId: state.fixtureId, status: String(state.status), homeScore: state.homeScore, awayScore: state.awayScore, currentPeriod: state.currentPeriod, matchClockMs: state.matchClockMs } });
   }
 }

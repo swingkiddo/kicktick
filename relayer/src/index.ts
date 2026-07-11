@@ -205,7 +205,7 @@ async function main(): Promise<void> {
     wsServer.broadcast({ type: "tx_status", data: status });
     if (status.status === "confirmed") {
       const msg = getMarketMessage(status);
-      if (msg) wsServer.broadcast(msg);
+      if (msg) wsServer.broadcastToMatch(status.fixtureId, msg);
     }
   });
 
@@ -309,7 +309,7 @@ async function main(): Promise<void> {
   }
 
   function broadcastMatchState(matchState: MatchState): void {
-    wsServer.broadcast({
+    wsServer.broadcastToMatch(matchState.fixtureId, {
       type: "match_state",
       data: {
         fixtureId: matchState.fixtureId,
@@ -383,7 +383,7 @@ async function main(): Promise<void> {
         if (matchState) {
           broadcastMatchState(matchState);
 
-          wsServer.broadcast({
+          wsServer.broadcastToMatch(rawData.fixtureId, {
             type: "football_event",
             data: {
               action: soccerEvent.action,
