@@ -13,7 +13,7 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg");
+declare_id!("7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4");
 
 #[program]
 pub mod kicktick {
@@ -23,6 +23,15 @@ pub mod kicktick {
 
     pub fn init_config(ctx: Context<InitConfig>) -> Result<()> {
         instructions::init_config::handler(ctx)
+    }
+
+    pub fn init_match(
+        ctx: Context<InitMatch>,
+        fixture_id: i64,
+        home_team: String,
+        away_team: String,
+    ) -> Result<()> {
+        instructions::init_match::handler(ctx, fixture_id, home_team, away_team)
     }
 
     pub fn set_relayer(ctx: Context<SetRelayer>, relayer: Pubkey) -> Result<()> {

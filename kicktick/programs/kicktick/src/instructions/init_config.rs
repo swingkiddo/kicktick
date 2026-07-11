@@ -29,6 +29,7 @@ pub fn handler(ctx: Context<InitConfig>) -> Result<()> {
         &TXORACLE_PROGRAM_ID,
     )
     .0;
+    config.finality_delay = 0;
     config.min_liquidity = MIN_ROUND_LIQUIDITY;
     config.bump = ctx.bumps.config;
 
