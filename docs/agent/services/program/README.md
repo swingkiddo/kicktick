@@ -20,7 +20,8 @@ Sub-minute prediction markets on Solana. Trustless market resolution via CPI to 
 ## Key Concepts
 
 ### Native SOL
-No SPL tokens. All bets, payouts, and sponsor liquidity use native SOL (lamports).
+No SPL tokens are used by the KickTick program. User collateral, CLOB
+settlement, and payouts use native SOL lamports.
 
 ### PDA Types
 | PDA | Seeds | Purpose |
@@ -31,33 +32,38 @@ No SPL tokens. All bets, payouts, and sponsor liquidity use native SOL (lamports
 | Position | `["position", market, owner]` | User position per market |
 | UserAccount / UserVault | `["user", owner]` / `["user_vault", owner]` | Wallet collateral bookkeeping and custody |
 | MarketVault | `["market_vault", market]` | Market collateral and complete-set funds |
-| SponsorVault | `["sponsor_vault"]` | Global sponsor liquidity pool |
+| SponsorVault | `["sponsor_vault"]` | Retained compatibility account |
 
 Full details: `program/ARCHITECTURE.md`
 
 ### Instructions
 
-| # | Instruction | Purpose |
-|---|-------------|---------|
-| 1 | `init_config` | Initialize global Config PDA (one-time) |
-| 2 | `init_market` | Create a market from a TxLINE fixture and market type |
-| 3 | `init_user` | Create user collateral bookkeeping accounts |
-| 4 | `deposit` | Deposit SOL into the user vault |
-| 5 | `withdraw` | Withdraw available SOL from the user vault |
-| 6 | `confirm_market` | Confirm a resolved market |
-| 7 | `resolve_market_with_proof` | Resolve a market via TxOracle Merkle proof CPI |
-| 8 | `resolve_market_offchain` | Resolve off-chain markets like PenaltyShot and VARCheck |
-| 9 | `close_market_vault` | Close the market vault after resolution |
-| 10 | `claim` | Claim payout for a winning position |
-| 11 | `cleanup_position` | Clean up a settled or expired position |
-| 12 | `set_relayer` | Rotate the trusted relayer authority |
+| Instruction | Purpose |
+|---|---|
+| `init_config` / `set_relayer` | Bootstrap and rotate global authority |
+| `init_match` | Create fixture metadata and match vault |
+| `init_user` / `deposit` / `withdraw` | Manage user collateral |
+| `init_market` / `lock_market` | Create and freeze a market when its outcome is known or its deadline expires |
+| `resolve_market_with_proof` | Resolve through TxOracle CPI |
+| `resolve_market_offchain` | Resolve trusted off-chain market types |
+| `confirm_market` / `void_market` | Finalize or void a market |
+| `settle_complete_set_binary` | Mint binary complete sets for a fill |
+| `settle_complete_set_ternary` | Mint ternary complete sets for a fill |
+| `settle_share_trade` | Transfer shares between buyer and seller |
+| `claim` | Pay winning/voided shares to a user |
+| `cleanup_position` / `close_market_vault` | Reclaim terminal account rent |
 
 ### Settlement Models
 
 - **On-chain:** `resolve_market_with_proof` → CPI `txoracle::validate_stat` with Merkle proof accounts. Binary/ternary predicates per MarketType.
 - **Off-chain:** `resolve_market_offchain` → relayer sets outcome for PenaltyShot and VARCheck.
 - **Confirm:** `confirm_market` finalizes a market after resolution.
-- **Payout:** `claim` → pro-rata distribution from the market vault.
+- **Locking:** A market is open for trading while its outcome is uncertain. The
+  relayer should lock it immediately when an event makes the outcome
+  determinable; after the deadline, any caller may perform the timeout lock.
+- **CLOB trading:** The relayer matches signed orders off-chain and submits
+  complete-set or share-trade fills through the relayer-authorized instructions.
+- **Payout:** `claim` → winning or voided share payout from the MarketVault to the UserVault.
 - **Cleanup:** `cleanup_position` and `close_market_vault` clear finished market state.
 
 ### Market Types
@@ -76,33 +82,33 @@ programs/kicktick/src/
 ├── lib.rs — module router
 ├── constants.rs (48 lines) — seeds, limits, StatKeys, CPI discriminator
 ├── errors.rs — error codes
-├── state/ (6 files)
-│   ├── mod.rs (11 lines) — re-exports
-│   ├── config.rs (15 lines) — Config PDA
-│   ├── match_.rs (47 lines) — Match_ PDA
+├── state/
+│   ├── config.rs — Config PDA
+│   ├── match_.rs — Match_ PDA
 │   ├── market.rs — Market PDA, MarketType, MarketStatus, MarketParams
-│   ├── position.rs (16 lines) — Position PDA
-│   └── vault.rs (12 lines) — SponsorVault / vault helpers
+│   ├── position.rs — Position PDA with outcome shares
+│   ├── user_account.rs — UserAccount PDA
+│   └── vault.rs — SponsorVault compatibility account
 └── instructions/
     ├── mod.rs (22 lines) — re-exports
     ├── init_config.rs (32 lines)
-    ├── init_market.rs
-    ├── init_user.rs
-    ├── deposit.rs / withdraw.rs
-    ├── resolve_market_with_proof.rs
-    ├── resolve_market_offchain.rs
-    ├── confirm_market.rs
-    ├── claim.rs
-    ├── cleanup_position.rs
-    ├── close_market_vault.rs
-    └── set_relayer.rs
+    ├── init_match.rs
+    ├── market.rs — market lifecycle and relayer authority
+    ├── user.rs — user account, deposit, withdraw
+    ├── trade.rs — complete-set and share-trade settlement
+    ├── oracle.rs — proof settlement
+    ├── redeem.rs — claim, cleanup, vault close
+    └── settle_round.rs / settle_offchain_round.rs — internal legacy filenames
 ```
 
 ## Tests
 
-- Test file: `kicktick/tests/kicktick.ts`
-- Flow: init_config → init_market → deposit → resolve_market_* → confirm_market → claim
-- Run: `anchor test --skip-deploy`
+- Test files: `kicktick/tests/kicktick.ts`, `kicktick/tests/market.ts`,
+  `kicktick/tests/standalone-validator.ts`
+- Flows cover Config/user collateral, market lifecycle, CLOB complete-set
+  settlement, share trades, voiding, cleanup, and error conditions.
+- Run through the repository's Docker workflow; do not use host-side Anchor
+  commands as the operational path.
 
 ## Related Docs
 

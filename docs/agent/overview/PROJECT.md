@@ -36,15 +36,16 @@ Users bet on real-time soccer events (next goal, next corner, cards, penalties) 
 ## Key Characteristics
 
 - **Native SOL** — no SPL tokens for betting
-- **CPI settlement** — `settle_round` calls `txoracle::validate_stat` on-chain
-- **Off-chain settlement** — `settle_offchain_round` for PenaltyShot, VARCheck (relayer sets outcome)
-- **Sub-minute markets** — 15s lock, 15-300s duration range
-- **Event-driven** — SSE events from TxLINE trigger market creation and settlement
+- **CPI settlement** — `resolve_market_with_proof` calls `txoracle::validate_stat` on-chain
+- **Off-chain settlement** — `resolve_market_offchain` for PenaltyShot, VARCheck (relayer sets outcome)
+- **Event-driven markets** — SSE events from TxLINE trigger market creation;
+  markets remain open while the outcome is uncertain, lock immediately when
+  the outcome becomes determinable, and settle at the deadline otherwise
 
 ## Current Status
 
 - **Phase 0** (completed): TxLINE auth, CPI spike test, token verification
-- **Phase 1** (in progress): Modular Anchor program with Match/Round/Position/SponsorVault PDAs
+- **Phase 1** (in progress): Modular Anchor program with Match/Market/Position/SponsorVault PDAs
 - **Phase 2** (pending): Relayer SSE parser, fixture watcher, market triggers, proof gatherer, crank, WebSocket
 - **Phase 3** (pending): Frontend on-chain integration
 

@@ -11,202 +11,99 @@ related_to:
 tags: [constants, seeds, enums, errors, StatKey]
 ---
 
-# KickTick — Constants & Seeds (Phase 1)
-
-> Single source of truth for addresses, seeds, config values. Read before any on-chain interaction.
-
----
+# KickTick — Constants & Seeds
 
 ## Program IDs
 
-| Component | Devnet | Mainnet |
-|-----------|--------|---------|
-| **KickTick** | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | TBD |
-| **TxOracle** | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
+| Component | Devnet | Source |
+|---|---|---|
+| KickTick | `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` | `Anchor.toml`, `lib.rs`, relayer constants |
+| TxOracle | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `constants.rs` |
 
-Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
+The program ID must match the deployed binary and the copied IDL. Mainnet
+addresses are not defined by the current project configuration.
 
----
+## PDA seeds
 
-## PDA Seeds
+| Account | Seeds | Purpose |
+|---|---|---|
+| `Config` | `config` | Global admin, relayer, oracle settings |
+| `UserAccount` | `user`, owner | User collateral bookkeeping |
+| `UserVault` | `user_vault`, owner | User SOL custody |
+| `Match_` | `match`, fixture ID as signed i64 LE | Fixture metadata |
+| `MatchVault` | `match_vault`, Match_ PDA | Match-level system account |
+| `Market` | `market`, fixture ID as signed i64 LE, market type byte, market sequence as u64 LE | Tradable market identity |
+| `MarketVault` | `market_vault`, Market PDA | Market collateral and payouts |
+| `Position` | `position`, Market PDA, owner | User shares for one market |
+| `SponsorVault` | `sponsor_vault` | Retained compatibility account |
 
-| Account | Seeds | Notes |
-|---------|-------|-------|
-| `Config` | `["config"]` | One per program |
-| `Match_` | `["match", fixture_id (i64 LE)]` | One per fixture |
-| `MatchVault` | `["match_vault", match_pubkey]` | System-owned account, zero data |
-| `Round` | `["round", match_pubkey, round_id (u64 LE)]` | One round per match id |
-| `Position` | `["position", fixture_id (i64 LE), round_id (u64 LE), owner]` | One per bettor per round |
-| `SponsorVault` | `["sponsor_vault"]` | Global sponsor liquidity pool |
+## Market types and status
 
-Derivation paths: `init_match.rs:58`, `open_round.rs:23`, `place_bet.rs:34`, `fund_sponsor.rs:24`
-
----
-
-## Enums
-
-### `MarketType`
-```rust
-// On-chain (CPI validate_stat)
+```text
+MarketType:
 NextGoalSide, GoalInWindow, NextCorner, CornerInWindow,
-NextYellowCard, YellowCardInWindow, RedCardInMatch, PenaltyShootoutShot
+NextYellowCard, YellowCardInWindow, RedCardInMatch,
+PenaltyShootoutShot, PenaltyShot, VARCheck
 
-// Off-chain (relayer sets outcome)
-PenaltyShot, VARCheck
+MarketStatus:
+Open, Locked, ResolvedPending, Resolved, Voided
 ```
-Defined in: `state/round.rs:6-19`
 
-### `RoundStatus`
-```rust
-Open, Locked, ResolvedPending, Settled, Voided, Cancelled
-```
-Defined in: `state/round.rs:63-70`
+The first, third, fifth, and eighth market types are ternary; the other market
+types are binary. `PenaltyShot` and `VARCheck` use relayer-authorized off-chain
+resolution. The remaining types require oracle proof resolution.
 
-### `RoundOutcome`
-```rust
-None, Yes, No, NoGoal, Home, Away, Cancelled
-```
-Defined in: `state/round.rs:82-89`
-
----
-
-## Config Values
+## Numeric constraints
 
 | Parameter | Value | Source |
-|-----------|-------|--------|
-| Min market duration | **15 seconds** | `constants.rs:17` |
-| Max market duration | **300 seconds** (5 min) | `constants.rs:18` |
-| Finality delay | **60 seconds** | `constants.rs:22` |
-| Default lock seconds | **15 seconds** | `constants.rs:20` |
-| Default deadline seconds | **120 seconds** | `constants.rs:21` |
-| Min round liquidity | **0.01 SOL** (10M lamports) | `constants.rs:25` |
-| CPI compute units | **1,400,000** | `constants.rs:28` |
+|---|---:|---|
+| Minimum market duration | 15 seconds | `MIN_MARKET_DURATION` |
+| Maximum market duration | 300 seconds | `MAX_MARKET_DURATION` |
+| Maximum outcomes | 3 | `MAX_OUTCOMES` |
+| Price scale | 10,000 bps | `PRICE_SCALE_BPS` |
+| Price tick | 100 bps | `PRICE_TICK_BPS` |
+| Minimum price | 100 bps | `MIN_PRICE_BPS` |
+| Maximum price | 9,900 bps | `MAX_PRICE_BPS` |
+| Minimum trade quantity | 100 shares | `MIN_TRADE_QUANTITY` |
+| Default lock duration | Legacy 15 seconds; not used by `init_market` | `DEFAULT_LOCK_SECONDS` |
+| Default deadline | 120 seconds | `DEFAULT_DEADLINE_SECONDS` |
+| Minimum configured liquidity | 10,000,000 lamports | `MIN_ROUND_LIQUIDITY` |
+| CPI compute budget | 1,400,000 CU | `CPI_COMPUTE_UNITS` |
 
----
+`finality_delay` remains in Config for account compatibility and is initialized
+to zero by the current program. `DEFAULT_LOCK_SECONDS` is also retained for
+compatibility with older round terminology; current markets do not close on a
+fixed pre-deadline lock timer. They lock when the outcome becomes determinable
+or after the deadline.
 
-## Period Encoding
+## Period constants
 
-The `period` field in `ScoreStat` selects which game period's stat value to validate.
+| Constant | Value |
+|---|---:|
+| `PERIOD_H1` | 0 |
+| `PERIOD_H2` | 1000 |
+| `PERIOD_ET1` | 2000 |
+| `PERIOD_ET2` | 3000 |
+| `PERIOD_PE` | 5000 |
+
+These values are the current code values. `PERIOD_H1 = 0` is retained as the
+program's full-match/default period representation; do not silently substitute
+the values from external TxLINE documentation.
+
+## Stat keys used by the program
 
 | Constant | Value | Meaning |
-|----------|-------|---------|
-| `PERIOD_FULL` | `0` | Full match (all periods aggregated) |
-| `PERIOD_H1` | `1_000` | First half only |
+|---|---:|---|
+| `STATKEY_P1_GOALS` | 1 | Participant 1 goals |
+| `STATKEY_P2_GOALS` | 2 | Participant 2 goals |
+| `STATKEY_P1_YC` | 3 | Participant 1 yellow cards |
+| `STATKEY_P2_YC` | 4 | Participant 2 yellow cards |
+| `STATKEY_P1_RC` | 5 | Participant 1 red cards |
+| `STATKEY_P2_RC` | 6 | Participant 2 red cards |
+| `STATKEY_P1_CORNERS` | 7 | Participant 1 corners |
+| `STATKEY_P2_CORNERS` | 8 | Participant 2 corners |
+| `STATKEY_P1_PE` | 5001 | Participant 1 penalty shootout goals |
+| `STATKEY_P2_PE` | 5002 | Participant 2 penalty shootout goals |
 
-> **Note:** Current `constants.rs` has `PERIOD_H1 = 0` (misnamed — acts as FULL). Will be fixed in code migration phase.
-| `PERIOD_H2` | `2_000` | Second half only |
-| `PERIOD_ET1` | `3_000` | Extra time first half |
-| `PERIOD_ET2` | `4_000` | Extra time second half |
-| `PERIOD_PE` | `5_000` | Penalty shootout |
-
-Defined in: `constants.rs:40-45`
-
----
-
-## StatKey Map (TxLINE Soccer Feed v1.0)
-
-### [Program Constants] — Keys used in CPI `validate_stat`
-
-| Key | Stat | Period modifier |
-|-----|------|----------------|
-| 1 | P1 Total Goals (Score) | +1000 = H1 (+2000 = H2) |
-| 2 | P2 Total Goals (Score) | +1000 = H1 (+2000 = H2) |
-| 3 | P1 Yellow Cards | +1000 = H1 |
-| 4 | P2 Yellow Cards | +1000 = H1 |
-| 5 | P1 Red Cards | +1000 = H1 |
-| 6 | P2 Red Cards | +1000 = H1 |
-| 7 | P1 Corners | +1000 = H1 |
-| 8 | P2 Corners | +1000 = H1 |
-| 5001 | P1 Penalty Shootout Goals | period = PERIOD_PE |
-| 5002 | P2 Penalty Shootout Goals | period = PERIOD_PE |
-
-Defined in: `constants.rs:31-46`
-
-### [Full soccer-scores-stat-keys table] — All stats available via `/api/scores/stat-validation`
-
-| statKey | Name | Notes for settlement |
-|---------|------|---------------------|
-| 1 | Participant1_Score | Used for NextGoalSide, GoalInWindow |
-| 2 | Participant2_Score | Used for NextGoalSide |
-| 10 | Participant1_GoalCount | Alternative to key 1 |
-| 11 | Participant2_GoalCount | Alternative to key 2 |
-| 20 | Participant1_YellowCardCount | Used for NextYellowCard, YellowCardInWindow |
-| 21 | Participant2_YellowCardCount | Used for NextYellowCard |
-| 30 | Participant1_RedCardCount | Used for RedCardInMatch |
-| 31 | Participant2_RedCardCount | — |
-| 40 | Participant1_CornerCount | Used for NextCorner, CornerInWindow |
-| 41 | Participant2_CornerCount | Used for NextCorner |
-| 50 | Participant1_ShotCount | Available for future markets |
-| 51 | Participant2_ShotCount | Available for future markets |
-| 60 | Participant1_ShotOnTargetCount | Available for future markets |
-| 61 | Participant2_ShotOnTargetCount | Available for future markets |
-| 80 | Participant1_PossessionPercent | Available for future markets |
-| 81 | Participant2_PossessionPercent | Available for future markets |
-| 100 | Participant1_FoulCount | Available for future markets |
-| 101 | Participant2_FoulCount | Available for future markets |
-| 110 | Participant1_YellowCardTotal | Cumulative (incl. 2nd YC → RC) |
-| 111 | Participant2_YellowCardTotal | Cumulative |
-| 120 | Participant1_RedCardTotal | Cumulative |
-| 121 | Participant2_RedCardTotal | Cumulative |
-| 150 | Participant1_OffsideCount | Available for future markets |
-| 151 | Participant2_OffsideCount | Available for future markets |
-| 157 | Participant1_PenaltyShotAttempts | Used for PenaltyShot on-chain |
-| 158 | Participant2_PenaltyShotAttempts | Used for PenaltyShot on-chain |
-| 159 | Participant1_PenaltyShotGoals | Used for PenaltyShot on-chain |
-| 160 | Participant2_PenaltyShotGoals | Used for PenaltyShot on-chain |
-| 206 | Participant1_SubstitutionCount | Available for future markets |
-| 207 | Participant2_SubstitutionCount | Available for future markets |
-| 400 | Participant1_WoodworkCount | Available for future markets |
-| 401 | Participant2_WoodworkCount | Available for future markets |
-| 620 | Participant1_AttackPossession | Available for future markets |
-| 621 | Participant2_AttackPossession | Available for future markets |
-| 1001 | Fixture_SportId | Fixture metadata (used in onchain_verification.md example) |
-| 1002 | Fixture_CompetitionId | Fixture metadata |
-| 1003 | Fixture_StartTime | Fixture metadata |
-
-### Period modifier rule
-
-To access a period-specific stat, add the period offset to the base statKey:
-- Base key + `1_000` = H1 value (e.g., P1 H1 Score = 1001)
-- Base key + `2_000` = H2 value
-- Base key + `3_000` = ET1 value
-- Base key + `4_000` = ET2 value
-- Base key + `5_000` = PE value
-
----
-
-## MarketType → StatKey Mapping
-
-| MarketType | statKey(s) | Period | Style | Predicate |
-|------------|-----------|--------|-------|-----------|
-| NextGoalSide | 1 (P1), 2 (P2) | FULL | Ternary | GreaterThan(0) — which side scored |
-| GoalInWindow | 1 (P1) | FULL | Binary | GreaterThan(0) — any goal |
-| NextCorner | 7 (P1), 8 (P2) | FULL | Ternary | GreaterThan(0) — which side corner |
-| CornerInWindow | 7 (P1) | FULL | Binary | GreaterThan(0) — any corner |
-| NextYellowCard | 3 (P1), 4 (P2) | FULL | Ternary | GreaterThan(0) — which side YC |
-| YellowCardInWindow | 3 (P1) | FULL | Binary | GreaterThan(0) — any YC |
-| RedCardInMatch | 5 (P1) | FULL | Binary | GreaterThan(0) — any RC |
-| PenaltyShootoutShot | 5001 (P1), 5002 (P2) | PE | Ternary | GreaterThan(0) — which side scored |
-| PenaltyShot | 157 (P1), 159 (P1 goals) | FULL | Binary | Two-stat: attempts - goals > 0 = Missed |
-| VARCheck | — | — | Off-chain | No statKey available |
-
----
-
-## TxOracle selected PDAs (for CPI)
-
-| Account | Seeds | Notes |
-|---------|-------|-------|
-| `daily_odds_merkle_roots` | `["daily_odds_merkle_roots", epochDay (2 bytes LE)]` | Odds data |
-| `daily_scores_merkle_roots` | `["daily_scores_merkle_roots"]` | Score data (validate_stat) |
-| `pricing_matrix` | `["pricing_matrix"]` | Subscription pricing |
-| `token_treasury_pda` | `["token_treasury_pda"]` | Token treasury |
-
----
-
-## Network Endpoints
-
-| Service | URL |
-|---------|-----|
-| Solana Devnet RPC | `https://api.devnet.solana.com` |
-| TxLINE Devnet API | `https://txline-dev.txodds.com` |
-| TxLINE Mainnet API | `https://txline.txodds.com` |
+The exact stat/predicate mapping is implemented in the oracle settlement
+handler and must be kept aligned with its `ValidateStatArgs` construction.

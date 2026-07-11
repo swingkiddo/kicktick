@@ -19,7 +19,10 @@ tags: [index, navigation, entry-point]
 
 ## Project DNA
 
-Sub-minute micro prediction markets on Solana. Create + settle markets in <60s using live TxODDS oracle odds + on-chain Merkle proof settlement.
+In-play Micro Prediction Markets on Solana. Create and resolve short sports
+event markets in under 60 seconds using live TxODDS/TxLINE data and on-chain
+Merkle-proof settlement. The product follows a Polymarket-style position and
+outcome model for fast in-play events.
 
 ---
 
@@ -27,7 +30,7 @@ Sub-minute micro prediction markets on Solana. Create + settle markets in <60s u
 
 | # | Subsystem | Dir | Language | Purpose |
 |---|-----------|-----|----------|---------|
-| 1 | **Anchor Program** | `kicktick/programs/kicktick/` | Rust (Anchor 1.0.0) | On-chain PDAs, CPI settlement, bet accounting |
+| 1 | **Anchor Program** | `kicktick/programs/kicktick/` | Rust (Anchor 1.0.0) | On-chain PDAs, positions, outcomes, CPI resolution |
 | 2 | **Relayer** | `relayer/` | Node/TS | Off-chain crank: SSE ingestion, market triggers, proof gathering, tx builder |
 | 3 | **Frontend** | `frontend/` | Next.js + React + Tailwind | UI with wallet, market cards, live odds |
 
@@ -59,7 +62,7 @@ docs/agent/
 │   ├── DEPENDENCIES.md            ← tech stack, versions, dep graph
 │   └── ENVIRONMENT.md             ← program IDs, endpoints, env vars
 └── operations/                    ← how-to guides
-    ├── WORKFLOWS.md               ← deploy, add market type, debug
+    ├── WORKFLOWS.md               ← deploy, add market definition, debug
     ├── STRUCTURE.md               ← full file tree
     └── TROUBLESHOOTING.md         ← error codes, fixes, debug commands
 ```

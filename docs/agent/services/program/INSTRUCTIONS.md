@@ -9,243 +9,174 @@ depends_on:
 related_to:
   - program-build
   - integration-data-flow
-tags: [instructions, CPI, settlement, accounts]
+tags: [instructions, CPI, settlement, clob, market]
 ---
 
-# KickTick — On-Chain Instructions (Phase 1)
+# KickTick — On-Chain Instructions
 
-> 10 instructions across `kicktick/programs/kicktick/src/instructions/`. Pure SOL, no SPL tokens. Anchor program on devnet.
+The public instruction names below are the Anchor/IDL API. Some Rust source
+files retain historical filenames such as `settle_round.rs` and
+`settle_offchain_round.rs`; those filenames do not define the public API.
 
----
+All market funds use native SOL. The relayer is authorized through `Config` for
+CLOB settlement and off-chain resolution. Users sign their own collateral and
+claim operations.
 
-## 1. `init_config`
+## Configuration and fixture setup
 
-**Purpose:** Bootstrap global Config PDA (one-time admin setup).
+### `init_config`
 
-**Rust signature:** `pub fn init_config(ctx: Context<InitConfig>) -> Result<()>`
+Creates the one-per-program Config PDA. The signer becomes `admin` and is also
+the initial `relayer`. The instruction derives the TxOracle daily scores roots
+PDA and stores the configured oracle program ID.
 
-**Accounts** (`InitConfig`):
-| Account | Signer? | Mut? | Details |
-|---------|---------|------|---------|
-| `admin` | ✅ | ✅ | Future KickTick admin |
-| `config` | — | ✅ | `Config` PDA — seeds: `["config"]` |
+### `init_match`
 
-**State changes:**
-- `config.admin = admin.key()`
-- `config.txoracle_program_id = TXORACLE_PROGRAM_ID`
-- `config.daily_scores_merkle_roots = ...`
-- `config.finality_delay = 0`
-- `config.min_liquidity = 0.01 SOL`
-- `config.bump`
+Creates a `Match_` account from a positive fixture ID and home/away team names.
+The signer must be the Config admin. It also verifies and creates the system-
+owned match vault PDA.
 
----
+Arguments:
 
-## 2. `init_match`
-
-**Purpose:** Create match + vault PDA for a fixture.
-
-**Rust signature:** `pub fn init_match(ctx: Context<InitMatch>, fixture_id: i64, home_team: String, away_team: String) -> Result<()>`
-
-**Accounts** (`InitMatch`):
-| Account | Signer? | Mut? | Details |
-|---------|---------|------|---------|
-| `creator` | ✅ | ✅ | Admin signer |
-| `config` | — | ✅ | Config PDA (authorizes admin) |
-| `match_pda` | — | ✅ | `Match_` PDA — seeds: `["match", fixture_id LE]` |
-| `match_vault` | — | ✅ | System-owned PDA — seeds: `["match_vault", match_pda]` |
-| `system_program` | — | — | For vault account creation |
-
-**Validation:**
-- `config.admin == creator`
-- `fixture_id > 0`
-- `home_team.len() <= 64`, `away_team.len() <= 64`
-
-**State changes:**
-- Match status = Pending, round_counter = 0, total_deposited = 0
-- Creates vault system account via CPI if lamports == 0
-- Stores `vault_bump`, `vault_authority_bump`
-
----
-
-## 3. `open_round`
-
-**Purpose:** Open a new market/round on a match.
-
-**Rust signature:** `pub fn open_round(ctx: Context<OpenRound>, round_id: u64, market_type: MarketType, lock_seconds: i64, deadline_seconds: i64) -> Result<()>`
-
-**Accounts** (`OpenRound`):
-| Account | Signer? | Mut? | Details |
-|---------|---------|------|---------|
-| `authority` | ✅ | — | Match authority |
-| `match_pda` | — | ✅ | Match PDA |
-| `round` | — | ✅ | `Round` PDA — seeds: `["round", match_pda, round_id LE]` |
-
-**Validation:**
-- `15 <= lock_seconds <= MAX_MARKET_DURATION`
-- `deadline_seconds <= MAX_MARKET_DURATION`
-
-**State changes:**
-- `round.status = Open`
-- `round.expires_at = now + deadline_seconds`
-- `round.settlement_model` set from market_type (PenaltyShot/VARCheck = OffChain; else OnChain)
-- `match_pda.round_counter++`
-
----
-
-## 4. `place_bet`
-
-**Purpose:** Bet SOL on a round side (YES/NO/ABSTAIN).
-
-**Rust signature:** `pub fn place_bet(ctx: Context<PlaceBet>, fixture_id: i64, round_id: u64, side: u8, amount: u64) -> Result<()>`
-
-**Accounts** (`PlaceBet`):
-| Account | Signer? | Mut? | Details |
-|---------|---------|------|---------|
-| `bettor` | ✅ | ✅ | User placing bet |
-| `match_pda` | — | ✅ | Match PDA |
-| `match_vault` | — | ✅ | System-owned vault PDA |
-| `round` | — | ✅ | Round PDA |
-| `position` | — | ✅ | `Position` PDA — seeds: `["position", fixture_id, round_id, bettor]` |
-| `system_program` | — | — | SOL transfer |
-
-**Validation:**
-- `amount > 0`
-- `round.status == Open`
-- `now < round.expires_at`
-- `side <= 2` (0=YES, 1=NO, 2=ABSTAIN)
-
-**CPI call:** `system_program::transfer(bettor -> match_vault)`
-
-**State changes:**
-- `match_pda.total_deposited += amount`
-- `round.total_yes/no/abstain` += amount per side
-- `position.amount += amount`, `position.side = side`, `position.claimed = false`
-
----
-
-## 5. `settle_round` (on-chain)
-
-**Purpose:** Settle via CPI to TxOracle `validate_stat`. For binary event markets (YellowCardInWindow, etc.).
-
-**Rust signature:** `pub fn settle_round(ctx: Context<SettleRound>) -> Result<()>`
-
-**Accounts** (`SettleRound`): match_pda, round, txoracle_program, proof accounts, match_vault (for rent exemption).
-
-**State changes:**
-- Sets `round.outcome`, `round.winner`, `round.status = ResolvedPending`
-
----
-
-## 6. `settle_offchain_round`
-
-**Purpose:** Relayer sets outcome directly for off-chain markets (PenaltyShot, VARCheck).
-
-**Rust signature:** `pub fn settle_offchain_round(ctx: Context<SettleOffchainRound>, outcome: RoundOutcome, winner: u8) -> Result<()>`
-
-**Accounts** (`SettleOffchainRound`): caller (authority), match_pda, round.
-
-**State changes:**
-- Sets `round.outcome`, `round.winner`, `round.status = ResolvedPending`
-
----
-
-## 7. `confirm_round`
-
-**Purpose:** Finalize settlement (no delay, callable immediately).
-
-**Rust signature:** `pub fn confirm_round(ctx: Context<ConfirmRound>) -> Result<()>`
-
-**Validation:**
-- `round.status == ResolvedPending`
-
-**State changes:**
-- `round.status = Settled`, `round.claimed = true`
-
----
-
-## 8. `claim_winnings` / `refund_bet`
-
-**Purpose:** Claim pro-rata payout for winning position, or refund if round cancelled/voided.
-
-**Rust signature:** `pub fn claim_winnings(ctx: Context<ClaimWinnings>, fixture_id: i64, round_id: u64) -> Result<()>`
-
-**Accounts** (`ClaimWinnings`):
-| Account | Signer? | Mut? | Details |
-|---------|---------|------|---------|
-| `winner` | ✅ | ✅ | Winner / bettor |
-| `match_pda` | — | ✅ | Match PDA |
-| `round` | — | ✅ | Round PDA |
-| `position` | — | ✅ | Must be `position.owner == winner` |
-| `match_vault` | — | ✅ | Vault PDA (payer) |
-| `system_program` | — | — | SOL transfer |
-
-**Payout formula (winners):**
-```
-total_pool = total_yes + total_no + total_abstain
-winning_pool = total_yes if winner==1 else total_no if winner==2 else total_abstain
-payout = (position.amount * total_pool) / winning_pool
+```text
+fixture_id: i64
+home_team: String   // max 64 bytes
+away_team: String   // max 64 bytes
 ```
 
-- If `round.winner == Some(0)` or `round.outcome == Cancelled`: full `position.amount` refunded.
+### `set_relayer`
 
-**CPI call:** `system_program::transfer(match_vault -> winner)` with PDA signer `["match_vault", match_key, vault_bump]`
+Admin-only rotation of the relayer authority stored in Config. The new key
+cannot be the default public key.
 
-**State changes:** `position.claimed = true`
+## User collateral
 
----
+### `init_user`
 
-## 9. `cancel_round`
+Creates the user collateral bookkeeping account and its system-owned user vault.
 
-**Purpose:** Void an open round (admin/authority only).
+### `deposit`
 
-**Rust signature:** `pub fn cancel_round(ctx: Context<CancelRound>) -> Result<()>`
+Transfers native SOL from the user wallet to the user vault and increments
+`UserAccount.available_balance`. The amount must be positive.
 
-**State changes:**
-- `round.status = Cancelled`, `round.outcome = Cancelled`
+### `withdraw`
 
----
+Transfers available native SOL from the user vault back to the user wallet. It
+rejects zero amounts and withdrawals larger than the available balance.
 
-## 10. `challenge_equivocation`
+## Market lifecycle
 
-**Purpose:** Challenge a prior settlement if equivocation detected.
+### `init_market`
 
-**Rust signature:** `pub fn challenge_equivocation(ctx: Context<ChallengeEquivocation>) -> Result<()>`
+Creates an Open Market and its system-owned MarketVault. The signer must be the
+Config admin.
 
-**State changes:**
-- `round.status = Voided`, `round.winner = Some(0)`
+Arguments:
 
----
+```text
+fixture_id: i64
+market_type: MarketType
+market_seq: u64
+params: MarketParams
+deadline_seconds: i64  // 15..=300
+```
 
-## Sponsor Instructions
+`MarketParams` captures participant, period, and baseline values used later by
+oracle proof settlement. Outcome count is derived from the market type: binary
+markets have two outcomes and side markets have three.
 
-### `fund_sponsor`
-**Purpose:** Deposit SOL into global `SponsorVault` (PDA `["sponsor_vault"]`). Also transfers to `match_vault`.
+### `lock_market`
 
-**Rust signature:** `pub fn fund_sponsor(ctx: Context<FundSponsor>, amount: u64) -> Result<()>`
+Moves an `Open` market to `Locked`, which rejects further fills. The intended
+trigger is event-driven: when an SSE event makes the outcome determinable (for
+example, a goal for a next-goal market), the relayer locks immediately before
+resolution. If no determining event occurs, the market can be locked after
+`expires_at`; after expiry the instruction is permissionless. The instruction
+does not implement a fixed 15-second pre-deadline lock window.
 
-### `sponsor_round`
-**Purpose:** Allocate sponsor liquidity to a specific round.
+### `resolve_market_with_proof`
 
-**Rust signature:** `pub fn sponsor_round(ctx: Context<SponsorRound>, amount: u64) -> Result<()>`
+Resolves an oracle-backed market through CPI to TxOracle `validate_stat`. The
+caller supplies the proof accounts and `ValidateStatArgs`. The instruction
+checks the market's captured oracle context and moves the market to
+`ResolvedPending` when the predicate succeeds.
 
-- Deducts from `sponsor_vault.total_balance`, increments `allocated`.
-- Increments `match_pda.total_sponsored`.
+### `resolve_market_offchain`
 
----
+Relayer-only resolution for `PenaltyShot` and `VARCheck`. It accepts a zero-
+based winner outcome index and moves the market to `ResolvedPending`.
 
-## Summary
+### `confirm_market`
 
-| Instruction | Authority | SOL Transfer | PDA Created |
-|-------------|-----------|--------------|-------------|
-| `init_config` | First admin | — | Config |
-| `init_match` | Admin | — | Match_, match_vault (system) |
-| `open_round` | Match authority | — | Round |
-| `place_bet` | Bettor | bettor → match_vault | Position (init_if_needed) |
-| `settle_round` | Caller | — | — |
-| `settle_offchain_round` | Authority | — | — |
-| `confirm_round` | Anyone | — | — |
-| `claim_winnings` | Winner | match_vault → winner | — |
-| `cancel_round` | Authority | — | — |
-| `challenge_equivocation` | Anyone | — | — |
-| `fund_sponsor` | Sponsor | sponsor → match_vault | SponsorVault (init_if_needed) |
-| `sponsor_round` | Sponsor | — | — |
+Finalizes a `ResolvedPending` market as `Resolved`. The current Config
+`finality_delay` is zero, so confirmation is immediate and is not delayed by
+the program.
+
+### `void_market`
+
+Admin-only transition to `Voided`. The market's `void_payout_bps` values define
+the proportional payout for all held shares.
+
+## CLOB settlement
+
+The relayer matches signed orders off-chain and submits the resulting fills on
+chain. The program validates prices, quantities, user balances, position
+ownership, and monotonically increasing `fill_sequence` values.
+
+### `settle_complete_set_binary`
+
+Mints one share of each binary outcome to two owners and debits their user
+collateral at the supplied outcome prices. The two prices must sum to the
+price scale.
+
+### `settle_complete_set_ternary`
+
+The ternary equivalent for three owners/outcomes. All three prices must satisfy
+the market price constraints.
+
+### `settle_share_trade`
+
+Transfers an outcome's shares from seller to buyer and transfers the buyer's
+SOL payment to the seller's available balance. The seller must hold enough
+unlocked shares and the fill sequence must be the next accepted sequence.
+
+## Redemption and cleanup
+
+### `claim`
+
+User-only payout operation. For a Resolved market it credits the user's UserVault
+with the winning shares. For a Voided market it applies `void_payout_bps` to all
+shares. The position is marked claimed and then closed.
+
+### `cleanup_position`
+
+Relayer-authorized cleanup for a resolved losing position with no winning
+shares. It closes the Position account and decrements `open_positions`.
+
+### `close_market_vault`
+
+Admin-only final cleanup after the market is terminal and positions have been
+handled. It closes the MarketVault to the selected recipient.
+
+## Public instruction summary
+
+| Instruction | Authority | Main effect |
+|---|---|---|
+| `init_config` | First admin | Creates Config |
+| `init_match` | Config admin | Creates Match_ and match vault |
+| `set_relayer` | Config admin | Rotates relayer |
+| `init_user` | User | Creates collateral accounts |
+| `deposit` / `withdraw` | User | Moves available SOL |
+| `init_market` | Config admin | Creates Open Market and vault |
+| `lock_market` | Authority | Freezes market |
+| `resolve_market_with_proof` | Resolver | CPI oracle resolution |
+| `resolve_market_offchain` | Config relayer | Trusted off-chain resolution |
+| `confirm_market` | Caller | Finalizes resolution |
+| `void_market` | Config admin | Voids market |
+| `settle_complete_set_binary` | Config relayer | Mints binary complete sets |
+| `settle_complete_set_ternary` | Config relayer | Mints ternary complete sets |
+| `settle_share_trade` | Config relayer | Transfers shares between users |
+| `claim` | User | Pays out and closes position |
+| `cleanup_position` | Config relayer | Closes losing position |
+| `close_market_vault` | Config admin | Closes terminal market vault |

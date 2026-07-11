@@ -41,7 +41,7 @@ tags: [architecture, data-flow, components]
 │       │                                                     │
 │       ▼                                                     │
 │  market-trigger.ts (rules engine)                           │
-│    • Event-triggered: goal→NextGoalSide, corner→NextCorner  │
+│    • Event-triggered: goal→lock/resolve NextGoalSide        │
 │    • Cron: every 5min→GoalInWindow                          │
 │    • Shootout mode: PE status→sequential CLOB markets       │
 │    • Timeouts: deadline→drain fills, lock, resolve, confirm │
@@ -76,6 +76,9 @@ tags: [architecture, data-flow, components]
 
 ### Anchor Program (trustless, on-chain)
 - Market lifecycle (Open → Locked → ResolvedPending → Resolved/Voided)
+- Markets stay `Open` while their outcome is still uncertain. The relayer locks
+  immediately when an SSE event makes the outcome determinable, or after
+  `expires_at` when the event did not occur.
 - Native SOL custody in MarketVault (system-owned PDA per market)
 - Position tracking per user per market
 - Settlement via CPI `txoracle::validate_stat` or off-chain relayer

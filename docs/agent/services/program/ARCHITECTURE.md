@@ -8,18 +8,24 @@ depends_on:
 related_to:
   - program-instructions
   - program-constants
-tags: [architecture, PDA, state, seeds]
+tags: [architecture, PDA, state, seeds, clob]
 ---
 
 # On-Chain Account Model
+
+The Anchor program is the authoritative ledger for user collateral, market
+state, positions, CLOB fills, and settlement. Orders are matched off-chain by
+the relayer, but every accepted fill is applied through a relayer-authorized
+program instruction.
 
 ## Config PDA
 
 **Seeds:** `["config"]`
 
-```
-Config PDA
+```text
+Config
 ├── admin: Pubkey
+├── relayer: Pubkey
 ├── txoracle_program_id: Pubkey
 ├── daily_scores_merkle_roots: Pubkey
 ├── finality_delay: i64
@@ -27,106 +33,118 @@ Config PDA
 └── bump: u8
 ```
 
-One per program. Initialized via `init_config`. Stores admin key, oracle program reference, and global settings.
+`finality_delay` is retained for compatibility with the Config PDA already
+initialized on devnet. The current initialization sets it to `0`.
 
----
-
-## Match_ PDA
+## Match PDA
 
 **Seeds:** `["match", fixture_id (i64 LE)]`
 
-```
-Match_ PDA
+```text
+Match_
 ├── fixture_id: i64
-├── status: MatchStatus (Pending/Live/Finished/Cancelled)
+├── status: Pending | Live | Finished | Cancelled
 ├── home_team: String
 ├── away_team: String
 ├── competition_id: i32
 ├── vault_bump: u8
-├── market_seq_counter: u64
+├── round_counter: u64
 ├── total_deposited: u64
 ├── total_sponsored: u64
-└── created_at: i64
+├── created_at: i64
+└── bump: u8
 ```
 
-One per fixture. Tracks match lifecycle and aggregate totals.
+The `round_counter` field is retained in the account layout for compatibility;
+current market identity is determined by `market_seq` in the Market PDA.
 
----
+## User collateral accounts
+
+```text
+UserAccount  ["user", owner]
+├── owner: Pubkey
+├── available_balance: u64
+├── reserved_balance: u64
+├── vault_bump: u8
+└── bump: u8
+
+UserVault    ["user_vault", owner]
+└── system-owned SOL account
+```
+
+`deposit` moves SOL into the user vault and credits `available_balance`.
+`withdraw` moves available SOL back to the wallet. CLOB settlement consumes or
+credits these balances through the configured relayer.
 
 ## Market PDA
 
 **Seeds:** `["market", fixture_id (i64 LE), market_type (u8), market_seq (u64 LE)]`
 
-```
-Market PDA
+```text
+Market
 ├── fixture_id: i64
 ├── market_type: MarketType
 ├── market_seq: u64
-├── params: MarketParams (participant, period, baseline_a, baseline_b)
-├── status: MarketStatus (Open/Locked/ResolvedPending/Resolved/Voided)
-├── outcome: MarketOutcome
-├── total_yes: u64
-├── total_no: u64
-├── total_abstain: u64
+├── params: MarketParams
+├── outcome_count: u8
+├── status: Open | Locked | ResolvedPending | Resolved | Voided
+├── winner: Option<u8>
 ├── expires_at: i64
-├── settle_at: i64
-├── winner: Option<u8> (1=YES, 2=NO, 3=abstain, 0=void)
-└── claimed: bool
+├── resolved_at: i64
+├── void_payout_bps: [u16; 3]
+├── collateral: u64
+├── total_volume: u64
+├── fill_sequence: u64
+├── open_positions: u64
+├── vault_bump: u8
+└── bump: u8
 ```
 
-One per tradable market. Core state machine for CLOB lifecycle and final resolution.
+`MarketParams` captures the immutable oracle context at creation:
+`participant`, `period`, `baseline_a`, and `baseline_b`.
 
----
+## Market vault
+
+**Seeds:** `["market_vault", market_pubkey]`
+
+`MarketVault` is a system-owned, zero-data account holding market collateral,
+complete-set funds, and payout funds. It is not the match vault and is not
+addressed by a Round identifier.
 
 ## Position PDA
 
 **Seeds:** `["position", market_pubkey, owner]`
 
-```
-Position PDA
+```text
+Position
 ├── owner: Pubkey
-├── fixture_id: i64
 ├── market: Pubkey
-├── side: u8 (0=YES, 1=NO, 2=abstain)
-├── amount: u64
-└── claimed: bool
+├── shares: [u64; 3]
+├── locked_shares: [u64; 3]
+├── claimed: bool
+└── bump: u8
 ```
 
-One per bettor per market. Tracks individual position and claim status.
-
----
+One Position exists per wallet and market. The position stores outcome shares,
+not a direct YES/NO bet amount.
 
 ## SponsorVault PDA
 
 **Seeds:** `["sponsor_vault"]`
 
-```
-SponsorVault PDA
-├── total_balance: u64
-├── allocated: u64
-└── bump: u8
-```
+`SponsorVault` remains in the account model for compatibility, but there is no
+public sponsor instruction in the current Anchor instruction surface. It must
+not be treated as the active CLOB funding path.
 
-Global sponsor liquidity pool. One per program.
+## Account summary
 
----
-
-## MarketVault
-
-**Seeds:** `["market_vault", market_pubkey]`
-**Type:** System-owned account (no data)
-
-Holds lamports for market collateral and complete-set funds. No structured data.
-
----
-
-## Account Summary Table
-
-| PDA | Seeds | Type | Purpose |
-|---------|-------|------|---------|
-| Config | `["config"]` | Anchor | Admin, oracle program id, relayer |
-| Match_ | `["match", fixture_id]` | Anchor | Match lifecycle, fixture metadata |
-| Market | `["market", fixture_id, market_type, market_seq]` | Anchor | Tradable market state |
-| Position | `["position", market, owner]` | Anchor | User position per market |
-| SponsorVault | `["sponsor_vault"]` | Anchor | Global sponsor liquidity |
-| MarketVault | `["market_vault", market]` | System (no data) | SOL pool, holds market collateral |
+| Account | Seeds | Type | Purpose |
+|---|---|---|---|
+| Config | `config` | Anchor account | Admin, relayer, oracle and global settings |
+| Match_ | `match`, fixture ID | Anchor account | Fixture metadata and legacy aggregate fields |
+| UserAccount | `user`, owner | Anchor account | Available and reserved user collateral |
+| UserVault | `user_vault`, owner | System account | User SOL custody |
+| Market | `market`, fixture ID, type, sequence | Anchor account | CLOB market lifecycle and fill accounting |
+| MarketVault | `market_vault`, market | System account | Market collateral and payouts |
+| Position | `position`, market, owner | Anchor account | Outcome shares and claim state |
+| SponsorVault | `sponsor_vault` | Anchor account | Retained compatibility account |
