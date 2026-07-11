@@ -15,7 +15,10 @@ import { WsServer, WsServerMessage } from "./api/ws-server";
 import { MarketTrigger, type TriggerAction } from "./market/triggers";
 import { FixtureWatcher, type MatchState } from "./market/fixture-watcher";
 import { parseSoccerEvent } from "./market/event-parser";
-import { normalizeSsePayload } from "./market/sse-normalize";
+import {
+  normalizeScoreEvent,
+  parseRawScoreEventPayload,
+} from "./infrastructure/txline/score-mapper";
 import { SseLogger } from "./market/sse-logger";
 import { ClobStore } from "./clob/store";
 import { MatchingEngine } from "./clob/matching-engine";
@@ -339,15 +342,17 @@ async function main(): Promise<void> {
         }
         if (event.event === "heartbeat") continue;
         sseLogger.write(event.data);
-        const rawParsed = JSON.parse(event.data);
+        const rawParsed = parseRawScoreEventPayload(JSON.parse(event.data));
         if (Object.keys(rawParsed).length === 1 && "Ts" in rawParsed) continue;
 
-        const rawData = normalizeSsePayload(rawParsed);
+        const rawData = normalizeScoreEvent(rawParsed);
         if (!rawData.fixtureId) continue;
 
         if (typeof rawParsed.CompetitionId === "number" && rawParsed.CompetitionId !== config.competitionId) continue;
 
-        const sequence = rawData.seq || rawData.id;
+        // Id identifies the upstream event; Seq is the only proof/cursor
+        // sequence and must never fall back to Id.
+        const sequence = rawData.seq;
         if (sequence > 0 && !clobStore.advanceFixtureCursor(String(rawData.fixtureId), sequence)) {
           console.log(`[DUPLICATE] fixture=${rawData.fixtureId} seq=${sequence}`);
           continue;

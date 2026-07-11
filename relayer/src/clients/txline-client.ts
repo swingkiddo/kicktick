@@ -8,6 +8,11 @@ import type {
   SseMessage,
 } from "@swingkiddo/txodds-client";
 import { Config } from "../config";
+import {
+  normalizeScoresRecord,
+  parseRawScoreEventPayload,
+  parseScoresUpdatesBody,
+} from "../infrastructure/txline/score-mapper";
 
 export interface TxLineSseEvent {
   id?: string;
@@ -88,7 +93,8 @@ export class TxLineClient extends EventEmitter {
   }
 
   async getScoresSnapshot(fixtureId: number): Promise<ScoresRecord[]> {
-    return this.client.getScoresSnapshot(fixtureId);
+    const records = await this.client.getScoresSnapshot(fixtureId);
+    return records.map((record) => normalizeScoresRecord(parseRawScoreEventPayload(record)));
   }
 
   async getScoresUpdates(fixtureId: number): Promise<ScoresRecord[]> {
