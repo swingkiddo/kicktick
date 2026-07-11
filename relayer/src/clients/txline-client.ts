@@ -6,7 +6,7 @@ import type {
   OddsRecord,
   StatValidationResult,
   SseMessage,
-} from "@swingkiddo/txodds-client/dist/types";
+} from "@swingkiddo/txodds-client";
 import { Config } from "../config";
 
 export interface TxLineSseEvent {

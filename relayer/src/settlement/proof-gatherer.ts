@@ -1,6 +1,7 @@
 import { TxLineClient } from "../clients/txline-client";
 import type { SoccerEvent } from "../domain/football/types";
 import { MarketType } from "../domain/markets";
+import type { StatProofNode } from "@swingkiddo/txodds-client";
 
 // ── Constants (mirrors kicktick/programs/kicktick/src/constants.rs) ──
 
@@ -106,9 +107,7 @@ export interface ProofData {
 
 // ── Mapper helpers ──
 
-function mapProofNodes(
-  nodes: { hash: number[]; isRightSibling: boolean }[],
-): ProofNode[] {
+function mapProofNodes(nodes: StatProofNode[]): ProofNode[] {
   return nodes.map((n) => ({
     hash: n.hash,
     is_right_sibling: n.isRightSibling,
