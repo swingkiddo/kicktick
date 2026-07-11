@@ -15,6 +15,7 @@ import { WsServer, WsServerMessage } from "./api/ws-server";
 import { MarketTrigger, type TriggerAction } from "./market/triggers";
 import { FixtureWatcher } from "./market/fixture-watcher";
 import type { MatchState } from "./domain/football/types";
+import { StatusId } from "./domain/football/types";
 import { parseFootballEvent } from "./domain/football/event-parser";
 import {
   normalizeScoreEvent,
@@ -30,6 +31,7 @@ import { ClobLifecycle } from "./clob/lifecycle";
 import { MarketActionExecutor } from "./market/action-executor";
 import { TestController } from "./api/test-controller";
 import type { FixtureRecord } from "@swingkiddo/txodds-client";
+import { solanaRpcFetch } from "./clients/solana-rpc";
 
 function actionSummary(actions: TriggerAction[]): string {
   return actions.map(a => {
@@ -57,9 +59,25 @@ function getMarketMessage(status: CrankStatus): WsServerMessage | null {
   }
 }
 
+function persistOnChainMatch(store: ClobStore, match: Awaited<ReturnType<AnchorClient["fetchMatchRecord"]>>): void {
+  store.upsertMatch({
+    fixture_id: String(match.fixtureId),
+    match: match.matchPda.toBase58(),
+    status: match.status,
+    home_team: match.homeTeam,
+    away_team: match.awayTeam,
+    competition_id: match.competitionId,
+    created_at: match.createdAt * 1000,
+  });
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
-  const rpcConnection = new Connection(config.solanaRpcUrl, "confirmed");
+  const rpcConnection = new Connection(config.solanaRpcUrl, {
+    commitment: "confirmed",
+    fetch: solanaRpcFetch,
+    disableRetryOnRateLimit: true,
+  });
 
   console.log("╔══════════════════════════════════════════╗");
   console.log("║       KickTick Relayer v0.1.0            ║");
@@ -90,6 +108,7 @@ async function main(): Promise<void> {
   const clobWsApi = new ClobWsApi(wsServer, clobStore, matchingEngine, {
     network: config.solanaRpcUrl.includes("devnet") ? "devnet" : "mainnet-beta",
     programId: config.kicktickProgramId.toBase58(),
+    connection: rpcConnection,
     onFills: async market => {
       for (const fill of clobStore.listPendingFills().filter(candidate => candidate.market === market && candidate.status === "MATCHED")) {
         await fillSettlement.submit(fill);
@@ -130,6 +149,13 @@ async function main(): Promise<void> {
   }
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
   const marketTrigger = new MarketTrigger();
+  try {
+    const onChainMatches = await anchorClient.listMatches();
+    for (const match of onChainMatches) persistOnChainMatch(clobStore, match);
+    console.log(`  Match reconciliation: ${onChainMatches.length} on-chain matches imported`);
+  } catch (error) {
+    console.warn(`  Match reconciliation deferred: ${error instanceof Error ? error.message : error}`);
+  }
   const restoredPdas = new Map<number, string>();
   for (const market of clobStore.listMarkets()) {
     const fixtureId = Number(market.fixture_id);
@@ -158,7 +184,11 @@ async function main(): Promise<void> {
     console.log("Activating API token (World Cup free tier)...");
     const keypair = Keypair.fromSecretKey(Buffer.from(config.solanaPrivateKey, "hex"));
     try {
-      const connection = new Connection(config.solanaRpcUrl, "confirmed");
+      const connection = new Connection(config.solanaRpcUrl, {
+        commitment: "confirmed",
+        fetch: solanaRpcFetch,
+        disableRetryOnRateLimit: true,
+      });
       await getOrCreateAssociatedTokenAccount(
         connection,
         keypair,
@@ -229,6 +259,7 @@ async function main(): Promise<void> {
     );
   });
 
+  console.log("test mode:", config.testMode)
   if (config.testMode) {
     new TestController(wsServer, {
       anchor: anchorClient,
@@ -285,17 +316,20 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // Init Match PDA on-chain if not yet created
+    // Init Match PDA on-chain if not yet created. Markets are created later by
+    // lifecycle actions and remain separate accounts under the match fixture.
     const [matchPda] = AnchorClient.deriveMatchPda(fixtureId, config.kicktickProgramId);
     const matchOnChain = await rpcConnection.getAccountInfo(matchPda);
     if (matchOnChain) {
       console.log(`  Match ${fixtureId}: already on-chain (${matchPda.toBase58()})`);
+      persistOnChainMatch(clobStore, await anchorClient.fetchMatchRecord(matchPda));
     } else {
       try {
-        const { sig } = await anchorClient.initMatch(
+        const result = await anchorClient.initMatch(
           fixtureId, matchState.participants.home, matchState.participants.away,
         );
-        console.log(`  Match ${fixtureId}: created on-chain (${matchPda.toBase58()}, tx: ${sig})`);
+        persistOnChainMatch(clobStore, await anchorClient.fetchMatchRecord(result.matchPda));
+        console.log(`  Match ${fixtureId}: created on-chain (${matchPda.toBase58()}, tx: ${result.sig})`);
       } catch (err) {
         console.error(`  Match ${fixtureId}: initMatch failed — skipping`, err instanceof Error ? err.message : err);
         continue;
@@ -307,6 +341,16 @@ async function main(): Promise<void> {
     } catch (err) {
       console.error(`  Failed to start cron for fixture ${fixtureId}:`, err instanceof Error ? err.message : err);
     }
+  }
+
+  // Restore matches created through the dev control plane (or any on-chain
+  // match without a TxLINE fixture) so they survive a relayer restart.
+  for (const match of clobStore.listMatches()) {
+    const fixtureId = Number(match.fixture_id);
+    if (fixtureWatcher.getFixtureState(fixtureId)) continue;
+    fixtureWatcher.registerSyntheticFixture(fixtureId, match.home_team, match.away_team, StatusId.NotStarted);
+    if (config.testMode) marketTrigger.startCronWindows(fixtureId);
+    console.log(`  Match ${fixtureId}: restored from SQLite (${match.match})`);
   }
 
   function broadcastMatchState(matchState: MatchState): void {
@@ -424,7 +468,7 @@ async function main(): Promise<void> {
     marketActions.recover(anchorClient).catch((error) => {
       console.warn("Periodic market lifecycle recovery failed:", error instanceof Error ? error.message : error);
     });
-  }, 5000);
+  }, 30000);
 
   const cronTimer = setInterval(() => {
     const allFixtures = fixtureWatcher.getAllFixtures();

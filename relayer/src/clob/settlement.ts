@@ -32,7 +32,7 @@ export class FillSettlementQueue extends EventEmitter {
           })
           .sort((a, b) => a.outcome_index - b.outcome_index)
           .map(order => order.owner))
-        : await this.anchor.settleClobFill(fill);
+        : await this.anchor.settleClobFill(fill, this.orderPdaFor(fill, fill.buyer!), this.orderPdaFor(fill, fill.seller!));
       this.store.markFillSubmitted(fill.id, signature);
       this.store.confirmFill(fill.id);
       this.emit("confirmed", this.store.getFill(fill.id));
@@ -48,6 +48,14 @@ export class FillSettlementQueue extends EventEmitter {
       this.emit("failed", this.store.getFill(fill.id), error);
       throw error;
     }
+  }
+
+  private orderPdaFor(fill: Fill, owner: string): string {
+    for (const id of [...fill.maker_order_ids, ...fill.taker_order_ids]) {
+      const order = this.store.getOrder(id);
+      if (order?.owner === owner) return order.order_pda;
+    }
+    throw new Error(`fill ${fill.id} has no order for ${owner}`);
   }
 
   async reconcile(): Promise<{ confirmed: string[]; retry: string[] }> {

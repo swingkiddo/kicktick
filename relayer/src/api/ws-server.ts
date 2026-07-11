@@ -1,6 +1,11 @@
 import { EventEmitter } from "events";
 import { WebSocket, WebSocketServer } from "ws";
 
+const jsonReplacer = (_key: string, value: unknown): unknown =>
+  typeof value === "bigint" ? value.toString() : value;
+
+const serialize = (value: unknown): string => JSON.stringify(value, jsonReplacer);
+
 export type WsServerMessage =
   | { type: "match_state"; data: { fixtureId: number; status: string; homeScore: number; awayScore: number; currentPeriod: string; matchClockMs: number } }
   | { type: "market_opened"; data: { fixtureId: number; marketSeq: number; marketType: string; lockSeconds: number; deadlineSeconds: number; expiresAt: number } }
@@ -60,7 +65,7 @@ export class WsServer extends EventEmitter {
       const state: ClientState = { isAlive: true, subscribedFixtures: new Set() };
       this.clients.set(ws, state);
 
-      ws.send(JSON.stringify({ type: "welcome", data: { version: "0.1.0" } }));
+      ws.send(serialize({ type: "welcome", data: { version: "0.1.0" } }));
       this.emit("connection", ws);
 
       ws.on("message", (data) => {
@@ -76,7 +81,7 @@ export class WsServer extends EventEmitter {
 
         switch (msg.type) {
           case "ping":
-            ws.send(JSON.stringify({ type: "pong" }));
+            ws.send(serialize({ type: "pong" }));
             break;
 
           case "subscribe_match": {
@@ -158,7 +163,7 @@ export class WsServer extends EventEmitter {
   }
 
   broadcast(msg: WsServerMessage): void {
-    const payload = JSON.stringify(msg);
+    const payload = serialize(msg);
     for (const ws of this.wss.clients) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(payload);
@@ -167,11 +172,11 @@ export class WsServer extends EventEmitter {
   }
 
   send(ws: WebSocket, type: string, data?: unknown): void {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data === undefined ? { type } : { type, data }));
+    if (ws.readyState === WebSocket.OPEN) ws.send(serialize(data === undefined ? { type } : { type, data }));
   }
 
   broadcastToMatch(fixtureId: number, msg: WsServerMessage): void {
-    const payload = JSON.stringify(msg);
+    const payload = serialize(msg);
     const subs = this.subscriptions.get(fixtureId);
     if (!subs) return;
     for (const ws of subs) {

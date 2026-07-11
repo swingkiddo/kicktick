@@ -37,4 +37,25 @@ describe("ClobStore durable relayer state", () => {
     store.updateMarketAction("resolve-42-1", "FAILED", "proof unavailable");
     expect(store.getMarketAction("resolve-42-1")).to.include({ status: "FAILED", error: "proof unavailable" });
   });
+
+  it("persists and idempotently updates on-chain matches", () => {
+    store.upsertMatch({
+      fixture_id: "1783771409225", match: "MatchPda", status: "PENDING",
+      home_team: "Home FC", away_team: "Away FC", competition_id: 0,
+      created_at: 1_783_771_409_000,
+    });
+
+    expect(store.getMatch("1783771409225")).to.include({
+      match: "MatchPda", status: "PENDING", home_team: "Home FC",
+    });
+
+    store.upsertMatch({
+      fixture_id: "1783771409225", match: "MatchPda", status: "LIVE",
+      home_team: "Home FC", away_team: "Away FC", competition_id: 0,
+      created_at: 1_783_771_409_000,
+    });
+
+    expect(store.listMatches()).to.have.length(1);
+    expect(store.getMatch("1783771409225")?.status).to.equal("LIVE");
+  });
 });

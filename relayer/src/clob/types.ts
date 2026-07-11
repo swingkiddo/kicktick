@@ -8,6 +8,7 @@ export type OrderSide = "BUY" | "SELL";
 export type OrderStatus = "OPEN" | "PARTIAL" | "FILLED" | "CANCELLED" | "EXPIRED" | "REJECTED";
 export type { Fill, FillStatus } from "../domain/settlement/types";
 export type { MarketRecord, MarketState } from "../domain/markets";
+export type { MatchRecord } from "../domain/matches";
 
 export interface OrderPayload {
   version: 1;
@@ -21,6 +22,8 @@ export interface OrderPayload {
   quantity: string;
   nonce: string;
   expires_at: number;
+  order_pda: string;
+  create_tx_signature: string;
 }
 
 export interface SignedOrder {
@@ -37,6 +40,8 @@ export interface CancellationPayload {
   order_id: string;
   nonce: string;
   expires_at: number;
+  order_pda: string;
+  cancel_tx_signature: string;
 }
 
 export interface SignedCancellation {

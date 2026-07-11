@@ -26,6 +26,7 @@ export interface MarketActionExecutorOptions {
 export class MarketActionExecutor {
   private readonly tails = new Map<number, Promise<void>>();
   private recoveryTail: Promise<void> = Promise.resolve();
+  private recoveryRunning = false;
 
   constructor(
     private readonly store: ClobStore,
@@ -46,10 +47,13 @@ export class MarketActionExecutor {
 
   /** Restore durable work only when the authoritative account has not already advanced. */
   async recover(reader: MarketStateReader): Promise<void> {
+    if (this.recoveryRunning) return;
+    this.recoveryRunning = true;
     const previous = this.recoveryTail;
     const next = previous.catch(() => undefined).then(() => this.recoverNow(reader));
     this.recoveryTail = next;
     return next.finally(() => {
+      this.recoveryRunning = false;
       if (this.recoveryTail === next) this.recoveryTail = Promise.resolve();
     });
   }

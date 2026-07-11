@@ -66,6 +66,8 @@ export function loadConfig(): Config {
     wsPort: parseInt(process.env.WS_PORT || String(constants.wsPort), 10),
     competitionId: parseInt(process.env.COMPETITION_ID || String(constants.competitionId), 10),
     clobDbPath: process.env.CLOB_DB_PATH || path.resolve(__dirname, "../data/clob.sqlite"),
-    testMode: process.env.TEST_MODE === "true",
+    // Dev control is enabled automatically for local development; production
+    // still requires an explicit TEST_MODE=true opt-in.
+    testMode: process.env.TEST_MODE === "true" || process.env.NODE_ENV === "development",
   };
 }

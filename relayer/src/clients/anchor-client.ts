@@ -11,8 +11,10 @@ import type { Idl } from "@anchor-lang/core/dist/cjs/idl";
 import { Config } from "../config";
 import { MarketType } from "../domain/markets";
 import type { MarketOutcome, MarketRecord } from "../domain/markets";
+import type { OnChainMatch } from "../domain/matches";
 import type { Fill } from "../domain/settlement/types";
 import { u64ToLeBytes } from "../domain/ids";
+import { solanaRpcFetch } from "./solana-rpc";
 
 // ── IDL ──
 
@@ -170,7 +172,11 @@ export class AnchorClient {
     const keypair = Keypair.fromSecretKey(Buffer.from(config.solanaPrivateKey, "hex"));
     const wallet = new Wallet(keypair);
 
-    const connection = new Connection(config.solanaRpcUrl, "confirmed");
+    const connection = new Connection(config.solanaRpcUrl, {
+      commitment: "confirmed",
+      fetch: solanaRpcFetch,
+      disableRetryOnRateLimit: true,
+    });
 
     this.provider = new AnchorProvider(
       connection,
@@ -229,6 +235,10 @@ export class AnchorClient {
     return PublicKey.findProgramAddressSync([Buffer.from("position"), market.toBuffer(), owner.toBuffer()], programId);
   }
 
+  static deriveOrderPda(owner: PublicKey, nonce: bigint, programId: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([Buffer.from("order"), owner.toBuffer(), new BN(nonce.toString()).toArrayLike(Buffer, "le", 8)], programId);
+  }
+
   static deriveDailyScoresRootsPda(txoracleProgramId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("daily_scores_roots")],
@@ -242,10 +252,14 @@ export class AnchorClient {
   private async buildAndSend(ix: Promise<Transaction>, cuLimit: number): Promise<string>;
   private async buildAndSend(ix: Promise<Transaction>, cuLimit: number, signers: Keypair[]): Promise<string>;
   private async buildAndSend(ix: Promise<Transaction>, cuLimit?: number, signers?: Keypair[]): Promise<string> {
+    const startedAt = Date.now();
+    console.log(`[ANCHOR_TX] build start cuLimit=${cuLimit ?? "default"} signerCount=${signers?.length ?? 0}`);
     let tx: Transaction;
     try {
       tx = await ix;
+      console.log(`[ANCHOR_TX] build complete instructions=${tx.instructions.length} elapsedMs=${Date.now() - startedAt}`);
     } catch (err) {
+      console.error('[ANCHOR_TX] build failed', err);
       throw new AnchorClientError(
         `Failed to build transaction: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -257,7 +271,9 @@ export class AnchorClient {
     }
 
     try {
+      console.log(`[ANCHOR_TX] sendAndConfirm start feePayer=${this.walletPublicKey.toBase58()}`);
       const sig = await this.provider.sendAndConfirm(tx, signers);
+      console.log(`[ANCHOR_TX] confirmed sig=${sig} elapsedMs=${Date.now() - startedAt}`);
       return sig;
     } catch (err: any) {
       const logs = err?.logs as string[] | undefined;
@@ -268,6 +284,7 @@ export class AnchorClient {
         );
         if (anchorErr) msg = anchorErr;
       }
+      console.error(`[ANCHOR_TX] failed elapsedMs=${Date.now() - startedAt} message=${msg}`, logs ?? err);
       throw new AnchorClientError(msg, logs);
     }
   }
@@ -283,6 +300,8 @@ export class AnchorClient {
   ): Promise<string> {
     const typeIndex = AnchorClient.marketTypeIndex(marketType);
     if (typeIndex < 0) throw new AnchorClientError(`unknown market type ${marketType}`);
+    const [matchPda] = AnchorClient.deriveMatchPda(fixtureId, this.programId);
+    await this.fetchMatchRecord(matchPda);
     const [market] = AnchorClient.deriveMarketPda(BigInt(fixtureId), typeIndex, BigInt(marketSeq), this.programId);
     const [marketVault] = AnchorClient.deriveMarketVaultPda(market, this.programId);
     return this.buildAndSend(
@@ -414,6 +433,7 @@ export class AnchorClient {
     homeTeam: string,
     awayTeam: string,
   ): Promise<{ sig: string; matchPda: PublicKey; vaultPda: PublicKey }> {
+    console.log(`[ANCHOR_TX] initMatch fixture=${fixtureId} home="${homeTeam}" away="${awayTeam}"`);
     const [matchPda] = AnchorClient.deriveMatchPda(fixtureId, this.programId);
     const [vaultPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("match_vault"), matchPda.toBuffer()],
@@ -442,6 +462,30 @@ export class AnchorClient {
     return (this.program.account as Accounts).match.fetch(matchPda);
   }
 
+  private decodeMatch(matchPda: PublicKey, account: any): OnChainMatch {
+    const status = typeof account.status === "string"
+      ? account.status
+      : Object.keys(account.status ?? {})[0] ?? "unknown";
+    return {
+      fixtureId: Number(account.fixtureId),
+      matchPda,
+      status: status.toUpperCase(),
+      homeTeam: String(account.homeTeam ?? ""),
+      awayTeam: String(account.awayTeam ?? ""),
+      competitionId: Number(account.competitionId ?? 0),
+      createdAt: Number(account.createdAt ?? 0),
+    };
+  }
+
+  async fetchMatchRecord(matchPda: PublicKey): Promise<OnChainMatch> {
+    return this.decodeMatch(matchPda, await this.fetchMatch(matchPda));
+  }
+
+  async listMatches(): Promise<OnChainMatch[]> {
+    const accounts = await (this.program.account as any).match.all();
+    return accounts.map((entry: { publicKey: PublicKey; account: any }) => this.decodeMatch(entry.publicKey, entry.account));
+  }
+
   async getMarketState(marketAddress: string): Promise<MarketRecord["state"]> {
     const account = await (this.program.account as any).market.fetch(new PublicKey(marketAddress));
     const rawStatus = account.status;
@@ -466,7 +510,7 @@ export class AnchorClient {
   }
 
   /** CLOB settlement helpers. They intentionally use the generated IDL at runtime. */
-  async settleClobFill(fill: Fill): Promise<string> {
+  async settleClobFill(fill: Fill, buyerOrderPda: string, sellerOrderPda: string): Promise<string> {
     const market = new PublicKey(fill.market);
     if (fill.kind === "DIRECT") {
       if (!fill.buyer || !fill.seller || fill.outcome_index === undefined) throw new AnchorClientError("direct fill is missing buyer, seller, or outcome");
@@ -477,8 +521,10 @@ export class AnchorClient {
         relayer: this.walletPublicKey, config: AnchorClient.deriveConfigPda(this.programId)[0], market,
         buyer, buyerAccount: AnchorClient.deriveUserAccountPda(buyer, this.programId)[0], buyerVault: AnchorClient.deriveUserVaultPda(buyer, this.programId)[0],
         buyerPosition: AnchorClient.derivePositionPda(market, buyer, this.programId)[0], seller,
+        buyerOrder: new PublicKey(buyerOrderPda),
         sellerAccount: AnchorClient.deriveUserAccountPda(seller, this.programId)[0], sellerVault: AnchorClient.deriveUserVaultPda(seller, this.programId)[0],
-        sellerPosition: AnchorClient.derivePositionPda(market, seller, this.programId)[0], systemProgram: SystemProgram.programId,
+        sellerPosition: AnchorClient.derivePositionPda(market, seller, this.programId)[0],
+        sellerOrder: new PublicKey(sellerOrderPda), systemProgram: SystemProgram.programId,
       }).transaction());
     }
     throw new AnchorClientError(`complete-set fill ${fill.id} must be submitted with owner expansion`);

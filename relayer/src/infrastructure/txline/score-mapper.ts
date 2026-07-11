@@ -112,6 +112,8 @@ export interface RawScoreCompatibilityPayload {
   HomeScore?: number;
   awayScore?: number;
   AwayScore?: number;
+  CompetitionId?: number;
+  SportId?: number;
 }
 
 export type RawScoreInput = RawScoreEventPayload | RawScoreCompatibilityPayload;
@@ -121,6 +123,8 @@ export interface NormalizedSseData extends ScoresSseData {
   statusId?: number;
   type?: string;
   stats?: Record<number, number>;
+  homeScore?: number;
+  awayScore?: number;
   metadata?: Record<string, unknown>;
   sourceMessageId: string;
 }
@@ -231,7 +235,7 @@ function normalizedScore(
     return { homeScore: explicitHome ?? 0, awayScore: explicitAway ?? 0 };
   }
 
-  const rawScore = input.Score ?? input.score ?? input.scoreSoccer;
+  const rawScore = (input.Score ?? input.score ?? input.scoreSoccer) as RawScore | undefined;
   const participant1 = participantGoals(rawScore, "Participant1") ?? 0;
   const participant2 = participantGoals(rawScore, "Participant2") ?? 0;
   const participant1IsHome = booleanValue(input.Participant1IsHome ?? input.participant1IsHome);
@@ -290,7 +294,7 @@ export function normalizeScoreEvent(
   const id = numberValue(input.Id ?? input.id) ?? 0;
   const seq = numberValue(input.Seq ?? input.seq) ?? 0;
   const statusId = numberValue(input.StatusId ?? input.statusId);
-  const stats = normalizeStats(input.Stats ?? input.stats);
+  const stats = normalizeStats((input.Stats ?? input.stats) as Record<string, number> | undefined);
 
   return {
     fixtureId,
@@ -303,7 +307,7 @@ export function normalizeScoreEvent(
     ts: numberValue(input.Ts ?? input.ts) ?? 0,
     sourceMessageId: options.sourceMessageId ?? `txline:${fixtureId}:${id}`,
     confirmed: booleanValue(input.Confirmed ?? input.confirmed),
-    clock: normalizeClock(input.Clock ?? input.clock),
+    clock: normalizeClock((input.Clock ?? input.clock) as RawClock | undefined),
     statusId,
     type: stringValue(input.Type ?? input.type),
     stats,
@@ -326,8 +330,8 @@ export function normalizeScoresRecord(raw: RawScoreInput): ScoresRecord {
     seq: normalized.seq,
     ts: normalized.ts,
     gameState: gameState as unknown as ScoresRecord["gameState"],
-    homeScore: normalized.homeScore,
-    awayScore: normalized.awayScore,
+    homeScore: normalized.homeScore ?? 0,
+    awayScore: normalized.awayScore ?? 0,
     stats: normalized.stats ?? {},
     fixtureId: normalized.fixtureId,
   };

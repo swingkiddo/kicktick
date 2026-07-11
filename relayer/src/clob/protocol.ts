@@ -41,6 +41,8 @@ export function canonicalOrderMessage(payload: OrderPayload): Uint8Array {
     quantity: payload.quantity,
     nonce: payload.nonce,
     expires_at: payload.expires_at,
+    order_pda: payload.order_pda,
+    create_tx_signature: payload.create_tx_signature,
   });
 }
 
@@ -53,6 +55,8 @@ export function canonicalCancellationMessage(payload: CancellationPayload): Uint
     order_id: payload.order_id,
     nonce: payload.nonce,
     expires_at: payload.expires_at,
+    order_pda: payload.order_pda,
+    cancel_tx_signature: payload.cancel_tx_signature,
   });
 }
 
@@ -81,6 +85,8 @@ function validateCommon(payload: { version: number; network: string; program_id:
 export function validateOrderPayload(payload: OrderPayload, now = Math.floor(Date.now() / 1000)): bigint {
   validateCommon(payload, now);
   validateBase58(payload.market, "market");
+  validateBase58(payload.order_pda, "order_pda");
+  if (!payload.create_tx_signature) throw new ProtocolError("create_tx_signature is required");
   if (payload.side !== "BUY" && payload.side !== "SELL") throw new ProtocolError("side must be BUY or SELL");
   if (!Number.isInteger(payload.outcome_index) || payload.outcome_index < 0 || payload.outcome_index > 2) throw new ProtocolError("outcome_index must be 0, 1, or 2");
   if (!Number.isInteger(payload.price_bps) || payload.price_bps < MIN_PRICE_BPS || payload.price_bps > MAX_PRICE_BPS || payload.price_bps % PRICE_TICK_BPS !== 0) {
@@ -94,6 +100,8 @@ export function validateOrderPayload(payload: OrderPayload, now = Math.floor(Dat
 export function validateCancellationPayload(payload: CancellationPayload, now = Math.floor(Date.now() / 1000)): void {
   validateCommon(payload, now);
   if (!/^[a-f0-9]{64}$/.test(payload.order_id)) throw new ProtocolError("order_id must be a SHA-256 hex digest");
+  validateBase58(payload.order_pda, "order_pda");
+  if (!payload.cancel_tx_signature) throw new ProtocolError("cancel_tx_signature is required");
 }
 
 function decodeSignature(value: string): Uint8Array {

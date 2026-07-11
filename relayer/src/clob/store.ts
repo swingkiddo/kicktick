@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 import type { MarketRecord } from "../domain/markets";
+import type { MatchRecord } from "../domain/matches";
 import type { Fill, FillStatus } from "../domain/settlement/types";
 import {
   FixtureCursor,
@@ -65,6 +66,21 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX IF NOT EXISTS market_actions_pending
     ON market_actions(status, fixture_id, created_at);
   `,
+  `
+  CREATE TABLE IF NOT EXISTS matches (
+    fixture_id TEXT PRIMARY KEY,
+    match TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    home_team TEXT NOT NULL,
+    away_team TEXT NOT NULL,
+    competition_id INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    onchain_seen_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS matches_status ON matches(status);
+  `,
+  `ALTER TABLE orders ADD COLUMN order_pda TEXT; ALTER TABLE orders ADD COLUMN create_tx_signature TEXT;`,
 ];
 
 type Row = Record<string, unknown>;
@@ -111,6 +127,20 @@ function asMarketAction(row: Row): MarketActionRecord {
   };
 }
 
+function asMatch(row: Row): MatchRecord {
+  return {
+    fixture_id: String(row.fixture_id),
+    match: String(row.match),
+    status: String(row.status),
+    home_team: String(row.home_team),
+    away_team: String(row.away_team),
+    competition_id: number(row.competition_id),
+    created_at: number(row.created_at),
+    updated_at: number(row.updated_at),
+    onchain_seen_at: number(row.onchain_seen_at),
+  };
+}
+
 /** SQLite is the durable source of order reservations. Quantity fields intentionally remain TEXT to avoid JS number loss. */
 export class ClobStore {
   readonly db: Database.Database;
@@ -128,7 +158,7 @@ export class ClobStore {
 
   clearForTest(): void {
     this.db.transaction(() => {
-      this.db.exec("DELETE FROM market_actions; DELETE FROM fills; DELETE FROM orders; DELETE FROM nonces; DELETE FROM fixture_cursors; DELETE FROM markets;");
+      this.db.exec("DELETE FROM market_actions; DELETE FROM fills; DELETE FROM orders; DELETE FROM nonces; DELETE FROM fixture_cursors; DELETE FROM markets; DELETE FROM matches;");
     })();
   }
 
@@ -164,6 +194,26 @@ export class ClobStore {
       ? this.db.prepare(`SELECT * FROM markets WHERE state IN (${states.map(() => "?").join(",")}) ORDER BY expires_at`).all(...states)
       : this.db.prepare("SELECT * FROM markets ORDER BY expires_at").all();
     return (rows as Row[]).map(asMarket);
+  }
+
+  upsertMatch(match: Omit<MatchRecord, "created_at" | "updated_at" | "onchain_seen_at"> & { created_at?: number }): void {
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO matches (fixture_id,match,status,home_team,away_team,competition_id,created_at,updated_at,onchain_seen_at)
+      VALUES (@fixture_id,@match,@status,@home_team,@away_team,@competition_id,@created_at,@now,@now)
+      ON CONFLICT(fixture_id) DO UPDATE SET match=excluded.match, status=excluded.status,
+      home_team=excluded.home_team, away_team=excluded.away_team, competition_id=excluded.competition_id,
+      updated_at=excluded.updated_at, onchain_seen_at=excluded.onchain_seen_at`).run({
+      ...match, created_at: match.created_at ?? now, now,
+    });
+  }
+
+  getMatch(fixtureId: string): MatchRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM matches WHERE fixture_id=?").get(fixtureId) as Row | undefined;
+    return row ? asMatch(row) : undefined;
+  }
+
+  listMatches(): MatchRecord[] {
+    return (this.db.prepare("SELECT * FROM matches ORDER BY fixture_id").all() as Row[]).map(asMatch);
   }
 
   getFixtureCursor(fixtureId: string): FixtureCursor | undefined {
@@ -213,11 +263,11 @@ export class ClobStore {
   insertOrder(order: StoredOrder): void {
     this.db.transaction(() => {
       this.db.prepare("INSERT INTO nonces(owner,nonce,kind,created_at) VALUES (?,?,?,?)").run(order.owner, order.nonce, "ORDER", Date.now());
-      this.db.prepare(`INSERT INTO orders (id,market,owner,signature,version,network,program_id,side,outcome_index,price_bps,nonce,expires_at,original_quantity,remaining_quantity,pending_quantity,status,priority_at,created_at,updated_at,payload_json)
-        VALUES (@id,@market,@owner,@signature,@version,@network,@program_id,@side,@outcome_index,@price_bps,@nonce,@expires_at,@original_quantity,@remaining_quantity,@pending_quantity,@status,@priority_at,@created_at,@updated_at,@payload_json)`).run({
+      this.db.prepare(`INSERT INTO orders (id,market,owner,signature,version,network,program_id,side,outcome_index,price_bps,nonce,expires_at,original_quantity,remaining_quantity,pending_quantity,order_pda,create_tx_signature,status,priority_at,created_at,updated_at,payload_json)
+        VALUES (@id,@market,@owner,@signature,@version,@network,@program_id,@side,@outcome_index,@price_bps,@nonce,@expires_at,@original_quantity,@remaining_quantity,@pending_quantity,@order_pda,@create_tx_signature,@status,@priority_at,@created_at,@updated_at,@payload_json)`).run({
         ...order, original_quantity: String(order.original_quantity), remaining_quantity: String(order.remaining_quantity), pending_quantity: String(order.pending_quantity), payload_json: JSON.stringify({
           version: order.version, network: order.network, program_id: order.program_id, market: order.market, owner: order.owner, side: order.side,
-          outcome_index: order.outcome_index, price_bps: order.price_bps, quantity: order.quantity, nonce: order.nonce, expires_at: order.expires_at,
+          outcome_index: order.outcome_index, price_bps: order.price_bps, quantity: order.quantity, nonce: order.nonce, expires_at: order.expires_at, order_pda: order.order_pda, create_tx_signature: order.create_tx_signature,
         }),
       });
     })();
