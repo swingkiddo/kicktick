@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 import { AnchorClient } from "../clients/anchor-client";
 import { ClobStore } from "./store";
-import { Fill } from "./types";
+import type { Fill } from "../domain/settlement/types";
 
 /** One queue per market prevents Solana account lock contention while separate markets run concurrently. */
 export class FillSettlementQueue extends EventEmitter {

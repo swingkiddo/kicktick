@@ -1,5 +1,5 @@
 import { ClobStore } from "./store";
-import { MarketRecord } from "./types";
+import type { MarketRecord } from "../domain/markets";
 
 export interface MarketLocker { lock(market: MarketRecord): Promise<void>; }
 

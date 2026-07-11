@@ -1,9 +1,9 @@
 import { PublicKey } from "@solana/web3.js";
 import { ClobLifecycle } from "../clob/lifecycle";
 import { ClobStore } from "../clob/store";
-import { MarketRecord } from "../clob/types";
+import type { MarketRecord } from "../domain/markets";
 import { FillSettlementQueue } from "../clob/settlement";
-import { AnchorClient, MarketType as AnchorMarketType } from "../clients/anchor-client";
+import { AnchorClient } from "../clients/anchor-client";
 import { TriggerAction } from "./triggers";
 
 export interface CrankActionRunner {
@@ -92,7 +92,7 @@ export class MarketActionExecutor {
   }
 
   private marketAddress(action: TriggerAction): string {
-    const typeIndex = AnchorClient.marketTypeIndex(action.marketType as AnchorMarketType);
+    const typeIndex = AnchorClient.marketTypeIndex(action.marketType);
     if (typeIndex < 0) throw new Error(`unknown market type ${action.marketType}`);
     return AnchorClient.deriveMarketPda(BigInt(action.fixtureId), typeIndex, BigInt(action.marketSeq), this.programId)[0].toBase58();
   }

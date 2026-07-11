@@ -1,6 +1,8 @@
 import { createHash } from "crypto";
 import { ClobStore } from "./store";
-import { Fill, MarketRecord, MIN_TRADE_QUANTITY, StoredOrder } from "./types";
+import { MIN_TRADE_QUANTITY, StoredOrder } from "./types";
+import type { MarketRecord } from "../domain/markets";
+import type { Fill } from "../domain/settlement/types";
 
 export interface MatchResult {
   fills: Fill[];

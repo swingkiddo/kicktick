@@ -2,7 +2,7 @@ import { EventEmitter } from "events";
 import { PublicKey } from "@solana/web3.js";
 import { AnchorClient, SettleProofArgs } from "../clients/anchor-client";
 import { ProofGatherer, ProofData, ProofNotReadyError } from "./proof-gatherer";
-import { MarketType } from "../market/event-parser";
+import { MarketType } from "../domain/markets";
 import { TriggerAction } from "../market/triggers";
 
 export interface CrankStatus {

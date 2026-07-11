@@ -6,7 +6,8 @@ export const MIN_TRADE_QUANTITY = 100n;
 
 export type OrderSide = "BUY" | "SELL";
 export type OrderStatus = "OPEN" | "PARTIAL" | "FILLED" | "CANCELLED" | "EXPIRED" | "REJECTED";
-export type FillStatus = "MATCHED" | "SUBMITTED" | "CONFIRMED" | "FAILED";
+export type { Fill, FillStatus } from "../domain/settlement/types";
+export type { MarketRecord, MarketState } from "../domain/markets";
 
 export interface OrderPayload {
   version: 1;
@@ -51,38 +52,6 @@ export interface StoredOrder extends OrderPayload {
   pending_quantity: bigint;
   status: OrderStatus;
   priority_at: number;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface Fill {
-  id: string;
-  market: string;
-  market_sequence: bigint;
-  kind: "DIRECT" | "COMPLETE_SET";
-  maker_order_ids: string[];
-  taker_order_ids: string[];
-  buyer?: string;
-  seller?: string;
-  outcome_index?: number;
-  prices_bps: number[];
-  quantity: bigint;
-  status: FillStatus;
-  tx_signature?: string;
-  error?: string;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface MarketRecord {
-  market: string;
-  fixture_id: string;
-  market_type: string;
-  market_seq: string;
-  outcome_count: number;
-  expires_at: number;
-  state: "OPEN" | "LOCKED" | "RESOLVED_PENDING" | "RESOLVED" | "VOIDED";
-  chain_fill_sequence: bigint;
   created_at: number;
   updated_at: number;
 }

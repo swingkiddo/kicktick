@@ -1,13 +1,12 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
+import type { MarketRecord } from "../domain/markets";
+import type { Fill, FillStatus } from "../domain/settlement/types";
 import {
-  Fill,
-  FillStatus,
   FixtureCursor,
   MarketActionRecord,
   MarketActionStatus,
-  MarketRecord,
   OrderStatus,
   StoredOrder,
 } from "./types";

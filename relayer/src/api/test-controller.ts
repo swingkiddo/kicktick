@@ -3,13 +3,14 @@ import { PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { WebSocket } from "ws";
 import { WsServer, TestClientMessage } from "./ws-server";
-import { AnchorClient, MarketType as AnchorMarketType } from "../clients/anchor-client";
+import { AnchorClient } from "../clients/anchor-client";
+import { MarketType } from "../domain/markets";
+import { SoccerAction, StatusId } from "../domain/football/types";
 import { ClobStore } from "../clob/store";
 import { ClobLifecycle } from "../clob/lifecycle";
 import { ClobWsApi } from "../clob/ws-api";
 import { FixtureWatcher } from "../market/fixture-watcher";
 import { MarketTrigger } from "../market/triggers";
-import { MarketType, SoccerAction, StatusId } from "../market/event-parser";
 
 interface Session { owner?: string; challenge?: string; }
 interface Options {
@@ -86,7 +87,7 @@ export class TestController {
 
   private async createMarket(ws: WebSocket, data: { fixtureId: number; marketType: string; marketSeq: number; deadlineSeconds: number }): Promise<void> {
     if (!Object.values(MarketType).includes(data.marketType as MarketType)) throw new Error(`unknown market type ${data.marketType}`);
-    const marketType = data.marketType as AnchorMarketType;
+    const marketType = data.marketType as MarketType;
     const txSig = await this.options.anchor.initMarket(data.fixtureId, marketType, data.marketSeq, data.deadlineSeconds);
     const [market] = AnchorClient.deriveMarketPda(BigInt(data.fixtureId), AnchorClient.marketTypeIndex(marketType), BigInt(data.marketSeq), this.options.anchor.programId);
     const expiresAt = Math.floor(Date.now() / 1000) + data.deadlineSeconds;
@@ -120,7 +121,7 @@ export class TestController {
     send(ws, "test_snapshot", { matches: this.options.watcher.getAllFixtures().map(state => ({ fixtureId: state.fixtureId, status: state.status, homeScore: state.homeScore, awayScore: state.awayScore })), markets: this.options.store.listMarkets() });
   }
 
-  private reset(ws: WebSocket): void { this.options.store.clearForTest(); send(ws, "test_ack", { command: "test_reset" }); }
+  private reset(ws: WebSocket): void { this.options.store.clearForTest(); this.options.watcher.clear(); this.options.trigger.reset(); send(ws, "test_ack", { command: "test_reset" }); }
 
   private fail(ws: WebSocket, error: unknown): void { send(ws, "test_error", { message: error instanceof Error ? error.message : String(error) }); }
 
