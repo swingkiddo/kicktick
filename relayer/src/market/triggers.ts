@@ -36,11 +36,15 @@ export interface MarketTracker {
   triggerEvent?: SoccerEvent;
 }
 
-export interface MarketOpenParams {
-  participant: number;
-  period: number;
-  baselineA: number;
-  baselineB: number;
+export type { MarketOpenParams } from "../domain/markets";
+
+type SettlementKind = "onchain" | "offchain";
+interface MarketDefinition {
+  settlement: SettlementKind;
+  lock: number;
+  deadline: number;
+  outcomeCount: 2 | 3;
+  statKeys?: [number, number];
 }
 
 export const MIN_MARKET_DURATION = 15;
@@ -53,10 +57,23 @@ export const MARKET_TIMINGS: Record<string, { lock: number; deadline: number }> 
   CornerInWindow:      { lock: 15, deadline: 180 },
   NextYellowCard:      { lock: 30, deadline: 120 },
   YellowCardInWindow:  { lock: 15, deadline: 300 },
-  RedCardInMatch:      { lock: 15, deadline: 99999 },
+  RedCardInMatch:      { lock: 15, deadline: 7200 },
   PenaltyShootoutShot: { lock: 10, deadline: 30 },
   PenaltyShot:         { lock: 15, deadline: 90 },
   VARCheck:            { lock: 15, deadline: 120 },
+};
+
+const MARKET_DEFINITIONS: Record<MarketType, MarketDefinition> = {
+  [MarketType.NextGoalSide]: { settlement: "onchain", lock: 30, deadline: 90, outcomeCount: 3, statKeys: [1, 2] },
+  [MarketType.GoalInWindow]: { settlement: "onchain", lock: 15, deadline: 300, outcomeCount: 2, statKeys: [1, 2] },
+  [MarketType.NextCorner]: { settlement: "onchain", lock: 30, deadline: 120, outcomeCount: 3, statKeys: [7, 8] },
+  [MarketType.CornerInWindow]: { settlement: "onchain", lock: 15, deadline: 180, outcomeCount: 2, statKeys: [7, 8] },
+  [MarketType.NextYellowCard]: { settlement: "onchain", lock: 30, deadline: 120, outcomeCount: 3, statKeys: [3, 4] },
+  [MarketType.YellowCardInWindow]: { settlement: "onchain", lock: 15, deadline: 300, outcomeCount: 2, statKeys: [3, 4] },
+  [MarketType.RedCardInMatch]: { settlement: "onchain", lock: 15, deadline: 7_200, outcomeCount: 2, statKeys: [5, 6] },
+  [MarketType.PenaltyShootoutShot]: { settlement: "onchain", lock: 10, deadline: 30, outcomeCount: 2, statKeys: [5001, 5002] },
+  [MarketType.PenaltyShot]: { settlement: "offchain", lock: 15, deadline: 90, outcomeCount: 2 },
+  [MarketType.VARCheck]: { settlement: "offchain", lock: 15, deadline: 120, outcomeCount: 2 },
 };
 
 function statusEndsMatch(status: StatusId): boolean {
@@ -328,12 +345,17 @@ export class MarketTrigger extends EventEmitter {
   ): void {
     const f = this.getOrCreateFixture(fixtureId);
     const marketSeq = this.getNextMarketSeq(fixtureId);
-    const timings = MARKET_TIMINGS[marketType] || {
+    const definition = MARKET_DEFINITIONS[marketType];
+    const timings = definition ?? (MARKET_TIMINGS[marketType] || {
       lock: 15,
       deadline: DEFAULT_DEADLINE_SECONDS,
-    };
+    });
     const now = Date.now();
-    const deadlineSec = Math.min(timings.deadline, MAX_MARKET_DURATION);
+    const deadlineSec = marketType === MarketType.RedCardInMatch
+      ? timings.deadline
+      : Number.isFinite(timings.deadline)
+      ? Math.min(timings.deadline, MAX_MARKET_DURATION)
+      : timings.deadline;
 
     const tracker: MarketTracker = {
       marketSeq,
