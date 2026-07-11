@@ -86,6 +86,8 @@ pub struct SettleShareTrade<'info> {
     pub buyer_vault: SystemAccount<'info>,
     #[account(init_if_needed, payer = relayer, space = Position::LEN, seeds = [SEED_POSITION, market.key().as_ref(), buyer.key().as_ref()], bump)]
     pub buyer_position: Box<Account<'info, Position>>,
+    #[account(mut, seeds = [SEED_ORDER, buyer.key().as_ref(), &buyer_order.nonce.to_le_bytes()], bump = buyer_order.bump)]
+    pub buyer_order: Box<Account<'info, OrderAccount>>,
     /// CHECK: signatures are authenticated by the configured relayer.
     pub seller: UncheckedAccount<'info>,
     #[account(mut, seeds = [SEED_USER, seller.key().as_ref()], bump = seller_account.bump, constraint = seller_account.owner == seller.key() @ KickTickError::Unauthorized)]
@@ -94,6 +96,8 @@ pub struct SettleShareTrade<'info> {
     pub seller_vault: SystemAccount<'info>,
     #[account(mut, seeds = [SEED_POSITION, market.key().as_ref(), seller.key().as_ref()], bump = seller_position.bump, constraint = seller_position.owner == seller.key() @ KickTickError::Unauthorized, constraint = seller_position.market == market.key() @ KickTickError::InvalidAccountData)]
     pub seller_position: Box<Account<'info, Position>>,
+    #[account(mut, seeds = [SEED_ORDER, seller.key().as_ref(), &seller_order.nonce.to_le_bytes()], bump = seller_order.bump)]
+    pub seller_order: Box<Account<'info, OrderAccount>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -242,10 +246,9 @@ pub fn settle_share_trade_handler(
         KickTickError::InvalidOutcomeIndex
     );
     let i = outcome as usize;
-    let available = ctx.accounts.seller_position.shares[i]
-        .checked_sub(ctx.accounts.seller_position.locked_shares[i])
-        .ok_or(KickTickError::Overflow)?;
-    require!(available >= quantity, KickTickError::InsufficientShares);
+    validate_order(&ctx.accounts.buyer_order, ctx.accounts.buyer.key(), ctx.accounts.market.key(), OrderSide::Buy, outcome, price, quantity)?;
+    validate_order(&ctx.accounts.seller_order, ctx.accounts.seller.key(), ctx.accounts.market.key(), OrderSide::Sell, outcome, price, quantity)?;
+    require!(ctx.accounts.seller_position.locked_shares[i] >= quantity, KickTickError::InsufficientShares);
     let market_key = ctx.accounts.market.key();
     init_position(
         &mut ctx.accounts.buyer_position,
@@ -255,7 +258,7 @@ pub fn settle_share_trade_handler(
         &mut ctx.accounts.market,
     )?;
     let cost = price_cost(quantity, price)?;
-    transfer_user_balance(
+    transfer_reserved_balance(
         &mut ctx.accounts.buyer_account,
         ctx.accounts.buyer_vault.to_account_info(),
         ctx.accounts.seller_vault.to_account_info(),
@@ -263,6 +266,8 @@ pub fn settle_share_trade_handler(
         ctx.accounts.buyer.key(),
         cost,
     )?;
+    ctx.accounts.buyer_order.remaining_quantity = ctx.accounts.buyer_order.remaining_quantity.checked_sub(quantity).ok_or(KickTickError::Overflow)?;
+    ctx.accounts.seller_order.remaining_quantity = ctx.accounts.seller_order.remaining_quantity.checked_sub(quantity).ok_or(KickTickError::Overflow)?;
     ctx.accounts.seller_account.available_balance = ctx
         .accounts
         .seller_account
@@ -270,6 +275,9 @@ pub fn settle_share_trade_handler(
         .checked_add(cost)
         .ok_or(KickTickError::Overflow)?;
     ctx.accounts.seller_position.shares[i] = ctx.accounts.seller_position.shares[i]
+        .checked_sub(quantity)
+        .ok_or(KickTickError::Overflow)?;
+    ctx.accounts.seller_position.locked_shares[i] = ctx.accounts.seller_position.locked_shares[i]
         .checked_sub(quantity)
         .ok_or(KickTickError::Overflow)?;
     ctx.accounts.buyer_position.shares[i] = ctx.accounts.buyer_position.shares[i]
@@ -413,6 +421,20 @@ fn transfer_user_balance<'info>(
         ),
         amount,
     )
+}
+fn transfer_reserved_balance<'info>(
+    ua: &mut Account<'info, UserAccount>, source: AccountInfo<'info>, destination: AccountInfo<'info>, system_program: AccountInfo<'info>, owner: Pubkey, amount: u64,
+) -> Result<()> {
+    require!(ua.reserved_balance >= amount, KickTickError::InsufficientBalance);
+    ua.reserved_balance = ua.reserved_balance.checked_sub(amount).ok_or(KickTickError::Overflow)?;
+    let bump = [ua.vault_bump];
+    let seeds: &[&[u8]] = &[SEED_USER_VAULT, owner.as_ref(), &bump];
+    anchor_lang::system_program::transfer(CpiContext::new_with_signer(system_program.key(), anchor_lang::system_program::Transfer { from: source, to: destination }, &[seeds]), amount)
+}
+fn validate_order(order: &OrderAccount, owner: Pubkey, market: Pubkey, side: OrderSide, outcome: u8, price: u16, quantity: u64) -> Result<()> {
+    require!(order.owner == owner && order.market == market && order.side == side && order.outcome_index == outcome && order.price_bps == price && order.status == OrderStatus::Open, KickTickError::InvalidOrder);
+    require!(order.remaining_quantity >= quantity, KickTickError::InsufficientShares);
+    Ok(())
 }
 fn price_cost(quantity: u64, price: u16) -> Result<u64> {
     let cost = (quantity as u128)

@@ -97,6 +97,13 @@ pub mod kicktick {
 
     // ===== Trading =====
 
+    pub fn create_order(ctx: Context<CreateOrder>, side: OrderSide, outcome_index: u8, price_bps: u16, quantity: u64, nonce: u64, expires_at: i64) -> Result<()> {
+        instructions::order::create_order_handler(ctx, side, outcome_index, price_bps, quantity, nonce, expires_at)
+    }
+
+    pub fn cancel_order(ctx: Context<CancelOrder>) -> Result<()> { instructions::order::cancel_order_handler(ctx) }
+    pub fn expire_order(ctx: Context<ExpireOrder>) -> Result<()> { instructions::order::expire_order_handler(ctx) }
+
     pub fn settle_complete_set_binary(
         ctx: Context<SettleCompleteSetBinary>,
         fill_seq: u64,

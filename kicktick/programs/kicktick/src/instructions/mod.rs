@@ -5,6 +5,7 @@ pub mod oracle;
 pub mod redeem;
 pub mod trade;
 pub mod user;
+pub mod order;
 
 pub use init_config::*;
 pub use init_match::*;
@@ -13,3 +14,4 @@ pub use oracle::*;
 pub use redeem::*;
 pub use trade::*;
 pub use user::*;
+pub use order::*;

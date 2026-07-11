@@ -12,6 +12,7 @@ pub const SEED_MATCH_VAULT: &[u8] = b"match_vault";
 pub const SEED_MARKET: &[u8] = b"market";
 pub const SEED_MARKET_VAULT: &[u8] = b"market_vault";
 pub const SEED_POSITION: &[u8] = b"position";
+pub const SEED_ORDER: &[u8] = b"order";
 
 // Market duration limits
 pub const MIN_MARKET_DURATION: i64 = 15;

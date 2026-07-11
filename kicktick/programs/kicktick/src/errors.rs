@@ -133,4 +133,10 @@ pub enum KickTickError {
     AlreadyInitialized,
     #[msg("Invalid account data")]
     InvalidAccountData,
+    #[msg("Order is not open")]
+    OrderNotOpen,
+    #[msg("Order expiry has not been reached")]
+    OrderNotExpired,
+    #[msg("Order parameters do not match")]
+    InvalidOrder,
 }
