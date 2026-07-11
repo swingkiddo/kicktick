@@ -24,7 +24,7 @@ function parseArgs(): string {
 }
 
 function loadDeployer(): Keypair {
-  const walletPath = path.resolve(__dirname, '..', 'kicktick-deployer.json');
+  const walletPath = path.resolve(__dirname, '../..', 'keypair.json');
   const data = JSON.parse(fs.readFileSync(walletPath, 'utf-8'));
   return Keypair.fromSecretKey(Uint8Array.from(data));
 }
