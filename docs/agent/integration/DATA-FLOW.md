@@ -37,7 +37,7 @@ tags: [data-flow, SSE, CPI, WebSocket]
 │       │                                                     │
 │       ▼                                                     │
 │  market-trigger.ts (rules engine)                           │
-│    • Event-triggered: goal→NextGoalSide, corner→NextCorner  │
+│    • Event-triggered: goal→lock/resolve NextGoalSide        │
 │    • Cron: every 5min→GoalInWindow                          │
 │    • Shootout mode: PE status→sequential CLOB markets       │
 │    • Timeouts: deadline→drain fills, lock, resolve, confirm │
@@ -70,7 +70,10 @@ tags: [data-flow, SSE, CPI, WebSocket]
 
 1. **Auth:** Relayer authenticates with TxLINE API → JWT + API token
 2. **SSE Subscribe:** Relayer connects to SSE streams (scores + odds)
-3. **Event Parse:** SSE events trigger market rules (goal → NextGoalSide, corner → NextCorner)
+3. **Event Parse:** SSE events trigger market rules. An event that determines
+   an open market's outcome first stops CLOB intake and locks the market; the
+   relayer then resolves it. Markets with no determining event stay open until
+   their deadline.
 4. **Proof Fetch:** Relayer fetches Merkle proof from `/api/scores/stat-validation`
 5. **Crank:** Relayer builds Solana transaction, signs with keypair, sends to devnet
 6. **CPI:** `resolve_market_with_proof` instruction calls `txoracle::validate_stat` with proof accounts
@@ -119,3 +122,11 @@ NS(1) → H1(2) → HT(3) → H2(4) → F(5) → WET(6) → ET(7-10) → WPE(11)
 - `relayer/TRIGGERS.md` — market trigger rules
 - `relayer/SETTLEMENT.md` — proof gathering and crank
 - `integration/ENVIRONMENT.md` — network endpoints
+
+## Reliability boundaries
+
+The relayer persists local intent in SQLite, but Solana is authoritative for market status, collateral, positions, and CLOB fill sequence. A restart must therefore reconcile both sources before retrying a transaction.
+
+For on-chain settlement, the sequence passed to `/stat-validation` is the upstream TxLINE score sequence. It is not the local market sequence. `PenaltyShot` and `VARCheck` intentionally use `resolve_market_offchain` and never enter the proof pipeline.
+
+Match-specific WebSocket events are scoped by `fixtureId`; system health and general errors are global. CLOB market/orderbook updates are scoped by market subscription.

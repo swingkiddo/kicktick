@@ -16,7 +16,7 @@ tags: [environment, network, program-IDs, endpoints]
 
 | Component | Devnet | Mainnet |
 |-----------|--------|---------|
-| **KickTick** | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | TBD |
+| **KickTick** | `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` | Devnet/current IDL |
 | **TxOracle** | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
 
 Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
@@ -45,10 +45,11 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | `TXLINE_API_HOST` | `https://txline-dev.txodds.com` | relayer |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | relayer |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | relayer |
-| `KICKTICK_PROGRAM_ID` | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | relayer |
+| `KICKTICK_PROGRAM_ID` | `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` | relayer |
 | `TXORACLE_PROGRAM_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | relayer |
 | `WS_PORT` | `8080` | relayer |
 | `CLOB_DB_PATH` | `/app/data/kicktick-clob.sqlite` | relayer SQLite database |
+| `TEST_MODE` | `false` | relayer dev-only test control plane |
 | `VITE_SOLANA_RPC_URL` | `https://api.devnet.solana.com` | frontend |
 | `VITE_KICKTICK_PROGRAM_ID` | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | frontend |
 | `VITE_RELAYER_WS_URL` | `ws://localhost:8080` | frontend CLOB WebSocket |
@@ -59,15 +60,16 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 |-----------|-------|--------|
 | Min market duration | **15 seconds** | `constants.rs:17` |
 | Max market duration | **300 seconds** (5 min) | `constants.rs:18` |
-| Finality delay | **60 seconds** | `constants.rs:22` |
-| Default lock seconds | **15 seconds** | `constants.rs:20` |
+| Confirmation delay | **0 seconds** in current `Config` | `Config.finality_delay` (compatibility field) |
+| Lock behavior | **Event-driven**; also allowed after deadline | `market.rs::lock_market_handler` |
 | Default deadline seconds | **120 seconds** | `constants.rs:21` |
-| Min round liquidity | **0.01 SOL** (10M lamports) | `constants.rs:25` |
+| Min configured liquidity | **0.01 SOL** (10M lamports) | `constants.rs:25` |
 | CPI compute units | **1,400,000** | `constants.rs:28` |
 
 ## Related Docs
 
-- `CLOB.md` — CLOB protocol, persistence, recovery, and WebSocket operations
+- `services/relayer/API.md` — WebSocket protocol and test control plane
+- `services/relayer/SETTLEMENT.md` — CLOB fill and market resolution recovery
 - `program/ARCHITECTURE.md` — PDA seeds and account model
 - `operations/TROUBLESHOOTING.md` — error codes
 - `program/BUILD.md` — deploy instructions
