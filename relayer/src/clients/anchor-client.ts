@@ -293,8 +293,8 @@ export class AnchorClient {
         {
           participant: params.participant ?? 0,
           period: params.period ?? 0,
-          baseline_a: params.baselineA ?? 0,
-          baseline_b: params.baselineB ?? 0,
+          baselineA: params.baselineA ?? 0,
+          baselineB: params.baselineB ?? 0,
         },
         new BN(deadlineSeconds),
       ).accountsStrict({
@@ -324,38 +324,38 @@ export class AnchorClient {
 
     const args = {
       ts: new BN(proofArgs.ts),
-      fixture_summary: {
-        fixture_id: new BN(proofArgs.fixtureSummary.fixtureId),
-        update_stats: {
-          update_count: new BN(proofArgs.fixtureSummary.updateStats.updateCount),
-          min_timestamp: new BN(proofArgs.fixtureSummary.updateStats.minTimestamp),
-          max_timestamp: new BN(proofArgs.fixtureSummary.updateStats.maxTimestamp),
+      fixtureSummary: {
+        fixtureId: new BN(proofArgs.fixtureSummary.fixtureId),
+        updateStats: {
+          updateCount: new BN(proofArgs.fixtureSummary.updateStats.updateCount),
+          minTimestamp: new BN(proofArgs.fixtureSummary.updateStats.minTimestamp),
+          maxTimestamp: new BN(proofArgs.fixtureSummary.updateStats.maxTimestamp),
         },
-        events_sub_tree_root: proofArgs.fixtureSummary.eventsSubTreeRoot,
+        eventsSubTreeRoot: proofArgs.fixtureSummary.eventsSubTreeRoot,
       },
-      fixture_proof: proofArgs.fixtureProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
-      main_tree_proof: proofArgs.mainTreeProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
+      fixtureProof: proofArgs.fixtureProof.map((n) => ({ hash: n.hash, isRightSibling: n.isRightSibling })),
+      mainTreeProof: proofArgs.mainTreeProof.map((n) => ({ hash: n.hash, isRightSibling: n.isRightSibling })),
       predicate: {
         threshold: new BN(proofArgs.predicate.threshold),
         comparison: { [camelCase(proofArgs.predicate.comparison)]: {} },
       },
-      stat_a: {
-        stat_to_prove: {
+      statA: {
+        statToProve: {
           key: new BN(proofArgs.statA.statToProve.key),
           value: new BN(proofArgs.statA.statToProve.value),
           period: new BN(proofArgs.statA.statToProve.period),
         },
-        event_stat_root: proofArgs.statA.eventStatRoot,
-        stat_proof: proofArgs.statA.statProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
+        eventStatRoot: proofArgs.statA.eventStatRoot,
+        statProof: proofArgs.statA.statProof.map((n) => ({ hash: n.hash, isRightSibling: n.isRightSibling })),
       },
-      stat_b: proofArgs.statB ? {
-        stat_to_prove: {
+      statB: proofArgs.statB ? {
+        statToProve: {
           key: new BN(proofArgs.statB.statToProve.key),
           value: new BN(proofArgs.statB.statToProve.value),
           period: new BN(proofArgs.statB.statToProve.period),
         },
-        event_stat_root: proofArgs.statB.eventStatRoot,
-        stat_proof: proofArgs.statB.statProof.map((n) => ({ hash: n.hash, is_right_sibling: n.isRightSibling })),
+        eventStatRoot: proofArgs.statB.eventStatRoot,
+        statProof: proofArgs.statB.statProof.map((n) => ({ hash: n.hash, isRightSibling: n.isRightSibling })),
       } : null,
       op: proofArgs.op ? { [camelCase(proofArgs.op)]: {} } : null,
     };
@@ -404,6 +404,11 @@ export class AnchorClient {
     );
   }
 
+  async fetchConfig(): Promise<any> {
+    const [configPda] = AnchorClient.deriveConfigPda(this.programId);
+    return (this.program.account as Accounts).config.fetch(configPda);
+  }
+
   async initMatch(
     fixtureId: number,
     homeTeam: string,
@@ -415,17 +420,19 @@ export class AnchorClient {
       this.programId,
     );
 
+    const initMatch = (this.program.methods as any).initMatch;
+    if (typeof initMatch !== "function") {
+      throw new AnchorClientError("initMatch is missing from the loaded Anchor IDL; rebuild the contract and relayer");
+    }
+
     const sig = await this.buildAndSend(
-      this.program.methods
-        .initMatch(new BN(fixtureId), homeTeam, awayTeam)
-        .accountsStrict({
-          creator: this.walletPublicKey,
-          config: AnchorClient.deriveConfigPda(this.programId)[0],
-          matchPda,
-          matchVault: vaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction(),
+      initMatch(new BN(fixtureId), homeTeam, awayTeam).accountsStrict({
+        creator: this.walletPublicKey,
+        config: AnchorClient.deriveConfigPda(this.programId)[0],
+        matchPda,
+        matchVault: vaultPda,
+        systemProgram: SystemProgram.programId,
+      }).transaction(),
     );
 
     return { sig, matchPda, vaultPda };
@@ -433,11 +440,6 @@ export class AnchorClient {
 
   async fetchMatch(matchPda: PublicKey): Promise<any> {
     return (this.program.account as Accounts).match.fetch(matchPda);
-  }
-
-  async fetchConfig(): Promise<any> {
-    const [configPda] = AnchorClient.deriveConfigPda(this.programId);
-    return (this.program.account as Accounts).config.fetch(configPda);
   }
 
   async getMarketState(marketAddress: string): Promise<MarketRecord["state"]> {
