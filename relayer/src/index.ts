@@ -13,8 +13,9 @@ import { ProofGatherer } from "./settlement/proof-gatherer";
 import { Crank, CrankStatus } from "./settlement/crank";
 import { WsServer, WsServerMessage } from "./api/ws-server";
 import { MarketTrigger, type TriggerAction } from "./market/triggers";
-import { FixtureWatcher, type MatchState } from "./market/fixture-watcher";
-import { parseSoccerEvent } from "./market/event-parser";
+import { FixtureWatcher } from "./market/fixture-watcher";
+import type { MatchState } from "./domain/football/types";
+import { parseFootballEvent } from "./domain/football/event-parser";
 import {
   normalizeScoreEvent,
   parseRawScoreEventPayload,
@@ -357,7 +358,9 @@ async function main(): Promise<void> {
         const rawParsed = parseRawScoreEventPayload(JSON.parse(event.data));
         if (Object.keys(rawParsed).length === 1 && "Ts" in rawParsed) continue;
 
-        const rawData = normalizeScoreEvent(rawParsed);
+        const rawData = normalizeScoreEvent(rawParsed, {
+          sourceMessageId: event.id ?? undefined,
+        });
         if (!rawData.fixtureId) continue;
 
         if (typeof rawParsed.CompetitionId === "number" && rawParsed.CompetitionId !== config.competitionId) continue;
@@ -370,11 +373,12 @@ async function main(): Promise<void> {
           continue;
         }
 
-        const soccerEvent = parseSoccerEvent(rawData);
-        if (!soccerEvent) {
+        const parsedEvent = parseFootballEvent(rawData);
+        if (parsedEvent.kind === "unsupported") {
           console.log(`[SKIP] action=${rawData.action} sportId=${rawParsed.SportId} gameState=${rawData.gameState} fixtureId=${rawData.fixtureId}`);
           continue;
         }
+        const soccerEvent = parsedEvent.event;
 
         const clockStr = rawData.clock ? `${rawData.clock.seconds}s` : "";
         console.log(`[EVENT] fixture=${rawData.fixtureId} action=${rawData.action} gameState=${rawData.gameState} seq=${rawData.seq} participant=${rawData.participant ?? "-"} clock=${clockStr}`);

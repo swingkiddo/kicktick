@@ -1,19 +1,19 @@
 import { EventEmitter } from "events";
+import { MarketType, type MarketCommand, type MarketOpenParams } from "../domain/markets";
 import {
-  SoccerEvent,
   SoccerAction,
-  MarketType,
   StatusId,
-  GoalEvent,
-  CornerEvent,
-  YellowCardEvent,
-  RedCardEvent,
-  PenaltyOutcomeEvent,
-  VarCheckEvent,
-  VarEndEvent,
-  StatusChangeEvent,
-} from "./event-parser";
-import type { MatchState } from "./fixture-watcher";
+  type SoccerEvent,
+  type GoalEvent,
+  type CornerEvent,
+  type YellowCardEvent,
+  type RedCardEvent,
+  type PenaltyOutcomeEvent,
+  type VarCheckEvent,
+  type VarEndEvent,
+  type StatusChangeEvent,
+  type MatchState,
+} from "../domain/football/types";
 
 export enum MarketSide {
   Yes = 1,
@@ -23,11 +23,8 @@ export enum MarketSide {
   Away = 2,
 }
 
-export type TriggerAction =
-  | { type: "open_market"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType; lockSeconds: number; deadlineSeconds: number; params?: MarketOpenParams; triggerSseSeq?: number }
-  | { type: "resolve_market_onchain"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType; settlementSeq: number; targetStatKey?: number }
-  | { type: "resolve_market_offchain"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType; outcome: "Yes" | "No" | "Home" | "Away" | "NoGoal" | "Cancelled" }
-  | { type: "confirm_market"; fixtureId: number; matchPda: string; marketSeq: number; marketType: MarketType };
+/** Compatibility alias retained while callers migrate to the domain name. */
+export type TriggerAction = MarketCommand;
 
 export interface MarketTracker {
   marketSeq: number;
@@ -81,17 +78,11 @@ function periodForState(state: MatchState): number {
 }
 
 function statKeysForMarket(marketType: MarketType): [number, number] {
-  switch (marketType) {
-    case MarketType.NextGoalSide:
-    case MarketType.GoalInWindow: return [1, 2];
-    case MarketType.NextCorner:
-    case MarketType.CornerInWindow: return [7, 8];
-    case MarketType.NextYellowCard:
-    case MarketType.YellowCardInWindow: return [3, 4];
-    case MarketType.RedCardInMatch: return [5, 6];
-    case MarketType.PenaltyShootoutShot: return [5001, 5002];
-    default: return [0, 0];
-  }
+  return MARKET_DEFINITIONS[marketType].statKeys ?? [0, 0];
+}
+
+function upstreamSequence(event: SoccerEvent | undefined, fallback: number): number {
+  return event?.metadata.txLineSequence ?? fallback;
 }
 
 interface FixtureState {
@@ -110,6 +101,30 @@ export class MarketTrigger extends EventEmitter {
 
   constructor() {
     super();
+  }
+
+  restoreMarkets(markets: ReadonlyArray<{ fixture_id: string; market_seq: string; market_type: string; state: string; expires_at: number }>, matchPdas: ReadonlyMap<number, string>, cursors: ReadonlyMap<number, number> = new Map()): void {
+    for (const market of markets) {
+      if (market.state !== "OPEN" && market.state !== "LOCKED") continue;
+      const fixtureId = Number(market.fixture_id);
+      const f = this.getOrCreateFixture(fixtureId);
+      f.matchPda = matchPdas.get(fixtureId) ?? f.matchPda;
+      const marketType = market.market_type as MarketType;
+      const marketSeq = Number(market.market_seq);
+      f.marketCounter = Math.max(f.marketCounter, marketSeq + 1);
+      f.markets.set(marketSeq, {
+        marketSeq, marketType,
+        status: market.state === "LOCKED" ? "settled" : "open",
+        openedAt: Date.now(), expiresAt: market.expires_at * 1000,
+        settledAt: market.state === "LOCKED" ? Date.now() : undefined,
+      });
+      this.lastSeenSeq.set(fixtureId, cursors.get(fixtureId) ?? 0);
+    }
+  }
+
+  reset(): void {
+    this.fixtures.clear();
+    this.lastSeenSeq.clear();
   }
 
   getNextMarketSeq(fixtureId: number): number {
@@ -137,10 +152,7 @@ export class MarketTrigger extends EventEmitter {
     const f = this.getOrCreateFixture(fixtureId);
     f.matchPda = currentMatchState.matchPda.toBase58();
 
-    const seq = (event as any).seq;
-    if (typeof seq === "number") {
-      this.lastSeenSeq.set(fixtureId, seq);
-    }
+    this.lastSeenSeq.set(fixtureId, event.metadata.txLineSequence);
 
     const actions: TriggerAction[] = [];
 
@@ -367,12 +379,12 @@ export class MarketTrigger extends EventEmitter {
       current.status = "settling";
       current.settledAt = Date.now();
       actions.push({
-        type: "resolve_market_offchain",
+        type: "resolve_market_onchain",
         fixtureId,
         matchPda: f.matchPda,
         marketSeq: current.marketSeq,
         marketType: MarketType.NextGoalSide,
-        settlementSeq: event.seq!,
+        settlementSeq: upstreamSequence(event, this.lastSeenSeq.get(fixtureId) ?? 0),
         targetStatKey: event.participant === 1 ? 1 : 2,
       });
     }
@@ -398,7 +410,7 @@ export class MarketTrigger extends EventEmitter {
         matchPda: f.matchPda,
         marketSeq: current.marketSeq,
         marketType: MarketType.NextCorner,
-        settlementSeq: event.seq!,
+        settlementSeq: upstreamSequence(event, this.lastSeenSeq.get(fixtureId) ?? 0),
         targetStatKey: event.participant === 1 ? 7 : 8,
       });
     }
@@ -424,7 +436,7 @@ export class MarketTrigger extends EventEmitter {
         matchPda: f.matchPda,
         marketSeq: current.marketSeq,
         marketType: MarketType.NextYellowCard,
-        settlementSeq: event.seq!,
+        settlementSeq: upstreamSequence(event, this.lastSeenSeq.get(fixtureId) ?? 0),
         targetStatKey: event.participant === 1 ? 3 : 4,
       });
     }
@@ -450,8 +462,8 @@ export class MarketTrigger extends EventEmitter {
         matchPda: f.matchPda,
         marketSeq: current.marketSeq,
         marketType: MarketType.RedCardInMatch,
-        settlementSeq: event.seq!,
-        targetStatKey: 5,
+        settlementSeq: upstreamSequence(event, this.lastSeenSeq.get(fixtureId) ?? 0),
+        targetStatKey: event.participant === 1 ? 5 : 6,
       });
     }
   }
@@ -505,7 +517,7 @@ export class MarketTrigger extends EventEmitter {
           matchPda: f.matchPda,
           marketSeq: soMarket.marketSeq,
           marketType: MarketType.PenaltyShootoutShot,
-          settlementSeq: (event as any).seq ?? 0,
+          settlementSeq: event.metadata.txLineSequence,
         });
       }
       this.openMarket(fixtureId, MarketType.PenaltyShootoutShot, state, actions);

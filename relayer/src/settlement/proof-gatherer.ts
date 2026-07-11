@@ -193,16 +193,8 @@ export class ProofGatherer {
     return proofData;
   }
 
-  /**
-   * Get the trigger SSE sequence for a given football event.
-   *
-   * NOTE: SoccerEvent does not currently carry the SSE sequence number.
-   * The caller must provide the seq from the scores SSE event id or the
-   * ScoresRecord that triggered this event. This method returns 0 as a
-   * placeholder until the event type is extended.
-   */
   getTriggerSeq(event: SoccerEvent): number {
-    return (event as { seq?: number }).seq ?? 0;
+    return event.metadata.txLineSequence;
   }
 
   /**

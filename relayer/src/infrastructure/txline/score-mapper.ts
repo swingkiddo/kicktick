@@ -122,6 +122,7 @@ export interface NormalizedSseData extends ScoresSseData {
   type?: string;
   stats?: Record<number, number>;
   metadata?: Record<string, unknown>;
+  sourceMessageId: string;
 }
 
 type RawObject = Record<string, unknown>;
@@ -241,7 +242,7 @@ export function parseRawScoreEventPayload(value: unknown): RawScoreInput {
 
 export function normalizeScoreEvent(
   raw: RawScoreInput,
-  options: { includeMetadata?: boolean } = {},
+  options: { includeMetadata?: boolean; sourceMessageId?: string } = {},
 ): NormalizedSseData {
   const metadata: Record<string, unknown> = {};
   if (options.includeMetadata) {
@@ -267,6 +268,7 @@ export function normalizeScoreEvent(
     id,
     seq,
     ts: numberValue(input.Ts ?? input.ts) ?? 0,
+    sourceMessageId: options.sourceMessageId ?? `txline:${fixtureId}:${id}`,
     confirmed: booleanValue(input.Confirmed ?? input.confirmed),
     clock: normalizeClock(input.Clock ?? input.clock),
     statusId,

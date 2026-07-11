@@ -2,32 +2,22 @@ import { EventEmitter } from "events";
 import { PublicKey } from "@solana/web3.js";
 import { TxLineClient } from "../clients/txline-client";
 import { Config } from "../config";
+import { u64ToLeBytes } from "../domain/ids";
 import {
-  SoccerEvent,
   SoccerAction,
   GoalType,
   StatusId,
-  gameStateToStatusId,
-} from "./event-parser";
-import type { FixtureRecord, ScoresRecord } from "@swingkiddo/txodds-client/dist/types";
+  type SoccerEvent,
+  type CornerEvent,
+  type YellowCardEvent,
+  type RedCardEvent,
+  type MatchState,
+} from "../domain/football/types";
+import { gameStateToStatusId } from "../domain/football/event-parser";
+import type { FootballEventMetadata } from "../domain/football/events";
+import type { FixtureRecord, ScoresRecord } from "@swingkiddo/txodds-client";
 
-// ── Interfaces ──
-
-export interface MatchState {
-  fixtureId: number;
-  matchPda: PublicKey;
-  matchPdaBump: number;
-  status: StatusId;
-  currentPeriod: string;
-  homeScore: number;
-  awayScore: number;
-  matchClockMs: number;
-  lastEventAt: number;
-  marketCounter: number;
-  participants: { home: string; away: string };
-  startTime?: number;
-  stats: Record<number, number>;
-}
+export type { MatchState } from "../domain/football/types";
 
 export interface FixtureWatcherEvents {
   match_start: [state: MatchState];
@@ -40,12 +30,6 @@ export interface FixtureWatcherEvents {
 }
 
 // ── Helpers ──
-
-function toLeBytes64(value: number): Buffer {
-  const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(BigInt(value));
-  return buf;
-}
 
 const STATUS_TO_PERIOD: Record<number, string> = {
   [StatusId.NotStarted]: "NS",
@@ -99,7 +83,7 @@ export class FixtureWatcher extends EventEmitter {
 
   static deriveMatchPda(fixtureId: number, programId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
-      [Buffer.from("match"), toLeBytes64(fixtureId)],
+      [Buffer.from("match"), u64ToLeBytes(fixtureId, "fixture id")],
       programId,
     );
   }
@@ -234,6 +218,10 @@ export class FixtureWatcher extends EventEmitter {
     this.matches.delete(fixtureId);
   }
 
+  clear(): void {
+    this.matches.clear();
+  }
+
   getFixtureState(fixtureId: number): MatchState | undefined {
     return this.matches.get(fixtureId);
   }
@@ -247,10 +235,19 @@ export class FixtureWatcher extends EventEmitter {
     const state = this.matches.get(update.fixtureId);
     if (!state) return undefined;
     const events: SoccerEvent[] = [];
-    const nextStatus = Number.isInteger(update.gameState) ? update.gameState as StatusId : undefined;
+    const metadata: FootballEventMetadata = {
+      fixtureId: update.fixtureId,
+      txLineSequence: update.seq,
+      occurredAt: update.ts * 1000,
+      gameState: String(update.gameState),
+      sourceMessageId: `replay:${update.fixtureId}:${update.seq}`,
+    };
+    const nextStatus = typeof update.gameState === "string"
+      ? gameStateToStatusId(update.gameState)
+      : Number.isInteger(update.gameState) ? update.gameState as StatusId : undefined;
     if (nextStatus && nextStatus !== state.status) {
       this.handleStatusChange({ action: SoccerAction.Status, statusId: nextStatus }, state);
-      events.push({ action: SoccerAction.Status, statusId: nextStatus, seq: update.seq });
+      events.push({ metadata, action: SoccerAction.Status, statusId: nextStatus });
     }
 
     for (const [participant, before, after] of [
@@ -258,7 +255,7 @@ export class FixtureWatcher extends EventEmitter {
       [2, state.awayScore, update.awayScore],
     ] as const) {
       for (let count = before; count < after; count++) {
-        events.push({ action: SoccerAction.Goal, participant, goalType: GoalType.Other, seq: update.seq });
+        events.push({ metadata, action: SoccerAction.Goal, participant, goalType: GoalType.Other });
       }
     }
 
@@ -272,11 +269,14 @@ export class FixtureWatcher extends EventEmitter {
       const after = update.stats[statKey] ?? before;
       for (let count = before; count < after; count++) {
         if (action === SoccerAction.RedCard) {
-          events.push({ action, participant, redCardType: "StraightRed", seq: update.seq });
+          const red: RedCardEvent = { metadata, action: SoccerAction.RedCard, participant, redCardType: "StraightRed" };
+          events.push(red);
         } else if (action === SoccerAction.YellowCard) {
-          events.push({ action, participant, seq: update.seq });
+          const yellow: YellowCardEvent = { metadata, action: SoccerAction.YellowCard, participant };
+          events.push(yellow);
         } else {
-          events.push({ action, participant, seq: update.seq });
+          const corner: CornerEvent = { metadata, action: SoccerAction.Corner, participant };
+          events.push(corner);
         }
       }
     }
