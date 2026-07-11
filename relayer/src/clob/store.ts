@@ -279,7 +279,8 @@ export class ClobStore {
   }
 
   markFillSubmitted(id: string, signature: string): void { this.updateFill(id, "SUBMITTED", signature); }
-  markFillFailed(id: string, error: string): void { this.updateFill(id, "FAILED", undefined, error); }
+  markFillUnknown(id: string, error: string): void { this.updateFill(id, "UNKNOWN", undefined, error); }
+  markFillFailed(id: string, error: string): void { this.updateFill(id, "FAILED_RETRYABLE", undefined, error); }
 
   confirmFill(id: string): void {
     this.db.transaction(() => {
@@ -310,7 +311,7 @@ export class ClobStore {
         const order = this.getOrder(orderId);
         if (order) this.db.prepare("UPDATE orders SET pending_quantity=?, updated_at=? WHERE id=?").run(String(order.pending_quantity >= fill.quantity ? order.pending_quantity - fill.quantity : 0n), Date.now(), orderId);
       }
-      this.updateFill(id, "FAILED", undefined, error);
+      this.updateFill(id, "FAILED_RETRYABLE", undefined, error);
     })();
   }
 
@@ -320,7 +321,7 @@ export class ClobStore {
   }
 
   listPendingFills(): Fill[] {
-    return (this.db.prepare("SELECT * FROM fills WHERE status IN ('MATCHED','SUBMITTED') ORDER BY market, market_sequence").all() as Row[]).map(asFill);
+    return (this.db.prepare("SELECT * FROM fills WHERE status IN ('MATCHED','SUBMITTED','UNKNOWN','FAILED_RETRYABLE') ORDER BY market, market_sequence").all() as Row[]).map(asFill);
   }
 
   /** Allocates sequences after already-reserved fills, not only after confirmed fills. */

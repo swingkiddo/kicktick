@@ -38,9 +38,13 @@ export class FillSettlementQueue extends EventEmitter {
       this.emit("confirmed", this.store.getFill(fill.id));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // The fill stays durable as FAILED and reservations are released. A caller can
-      // reconcile an ambiguous submitted signature before deciding to retry.
-      this.store.releaseFill(fill.id, message);
+      // A timeout/transport error does not prove the transaction failed. Keep the
+      // reservation until reconciliation observes the market fill sequence.
+      if (/timeout|timed out|blockhash|confirm|transport|network|unknown/i.test(message)) {
+        this.store.markFillUnknown(fill.id, message);
+      } else {
+        this.store.releaseFill(fill.id, message);
+      }
       this.emit("failed", this.store.getFill(fill.id), error);
       throw error;
     }
