@@ -32,6 +32,9 @@ export interface TxLineClientEvents {
 
 export class TxLineClient extends EventEmitter {
   private client: TxOddsClient;
+  private txlineApiHost: string;
+  private txlineJwt: string;
+  private txlineApiToken: string;
   private _lastEventAt: number = 0;
   private _reconnectAttempts: number = 0;
   private _heartbeatTimer?: ReturnType<typeof setTimeout>;
@@ -42,6 +45,9 @@ export class TxLineClient extends EventEmitter {
 
   constructor(config: Config) {
     super();
+    this.txlineApiHost = config.txlineApiHost.replace(/\/+$/, "");
+    this.txlineJwt = config.txlineJwt;
+    this.txlineApiToken = config.txlineApiToken;
     this.client = new TxOddsClient(config.txlineApiHost);
     if (config.txlineJwt) {
       this.client.setJwt(config.txlineJwt);
@@ -60,14 +66,18 @@ export class TxLineClient extends EventEmitter {
   }
 
   async authenticate(): Promise<string> {
-    return this.client.authenticate();
+    const jwt = await this.client.authenticate();
+    this.txlineJwt = jwt;
+    return jwt;
   }
 
   setJwt(jwt: string): void {
+    this.txlineJwt = jwt;
     this.client.setJwt(jwt);
   }
 
   setApiToken(token: string): void {
+    this.txlineApiToken = token;
     this.client.setApiToken(token);
   }
 
@@ -98,7 +108,23 @@ export class TxLineClient extends EventEmitter {
   }
 
   async getScoresUpdates(fixtureId: number): Promise<ScoresRecord[]> {
-    return this.client.getScoresUpdates(fixtureId);
+    // The endpoint is documented as JSON, but some TxLINE responses are
+    // currently returned with the SSE `data:` framing used by the stream
+    // endpoint.  The SDK's JSON-only parser rejects those responses before
+    // they reach the reconnect replay path.
+    const url = `${this.txlineApiHost}/api/scores/updates/${fixtureId}`;
+    const response = await fetch(url, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.txlineJwt ? { Authorization: `Bearer ${this.txlineJwt}` } : {}),
+        ...(this.txlineApiToken ? { "X-Api-Token": this.txlineApiToken } : {}),
+      },
+    });
+    const body = await response.text();
+    if (!response.ok) {
+      throw new Error(`TxODDS API ${response.status} on /scores/updates/${fixtureId}: ${body}`);
+    }
+    return parseScoresUpdatesBody(body);
   }
 
   async getOddsSnapshot(fixtureId: number): Promise<OddsRecord[]> {
