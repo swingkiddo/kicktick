@@ -1,75 +1,9 @@
 import { TxLineSseEvent } from "../clients/txline-client";
+import { MarketType } from "../domain/markets";
+import { GoalType, SoccerAction, StatusId, VarType } from "../domain/football/types";
+import type { FootballEvent } from "../domain/football/types";
 
-export enum SoccerAction {
-  Goal = "goal",
-  Corner = "corner",
-  YellowCard = "yellow_card",
-  RedCard = "red_card",
-  Penalty = "penalty",
-  PenaltyOutcome = "penalty_outcome",
-  Shot = "shot",
-  FreeKick = "free_kick",
-  ThrowIn = "throw_in",
-  GoalKick = "goal_kick",
-  Var = "var",
-  VarEnd = "var_end",
-  Possible = "possible",
-  Status = "status",
-  ScoreAdjustment = "score_adjustment",
-  AdditionalTime = "additional_time",
-  Kickoff = "kickoff",
-  Substitution = "substitution",
-  Injury = "injury",
-  Suspend = "suspend",
-}
-
-export enum StatusId {
-  NotStarted = 1,
-  FirstHalf = 2,
-  HalfTime = 3,
-  SecondHalf = 4,
-  FullTime = 5,
-  WaitingExtraTime = 6,
-  ExtraTimeFirstHalf = 7,
-  ExtraTimeHalfTime = 8,
-  ExtraTimeSecondHalf = 9,
-  FinishedAfterExtraTime = 10,
-  WaitingPenaltyShootout = 11,
-  PenaltyShootout = 12,
-  FinishedAfterPenaltyShootout = 13,
-  Interrupted = 14,
-  Abandoned = 15,
-  Cancelled = 16,
-}
-
-export enum GoalType {
-  Shot = "Shot",
-  Head = "Head",
-  Own = "Own",
-  Other = "Other",
-}
-
-export enum VarType {
-  Goal = "Goal",
-  Penalty = "Penalty",
-  RedCard = "RedCard",
-  SecondYellowCard = "SecondYellowCard",
-  CornerKick = "CornerKick",
-  Other = "Other",
-}
-
-export enum MarketType {
-  NextGoalSide = "NextGoalSide",
-  GoalInWindow = "GoalInWindow",
-  NextCorner = "NextCorner",
-  CornerInWindow = "CornerInWindow",
-  NextYellowCard = "NextYellowCard",
-  YellowCardInWindow = "YellowCardInWindow",
-  RedCardInMatch = "RedCardInMatch",
-  PenaltyShootoutShot = "PenaltyShootoutShot",
-  PenaltyShot = "PenaltyShot",
-  VARCheck = "VARCheck",
-}
+export { GoalType, MarketType, SoccerAction, StatusId, VarType };
 
 export interface SoccerScorePeriod {
   Goals: number;
@@ -274,27 +208,7 @@ export interface SuspendEvent {
   seq?: number;
 }
 
-export type SoccerEvent =
-  | GoalEvent
-  | CornerEvent
-  | YellowCardEvent
-  | RedCardEvent
-  | PenaltyAwardedEvent
-  | PenaltyOutcomeEvent
-  | ShotEvent
-  | FreeKickEvent
-  | ThrowInEvent
-  | GoalKickEvent
-  | VarCheckEvent
-  | VarEndEvent
-  | PossibleEvent
-  | StatusChangeEvent
-  | ScoreAdjustmentEvent
-  | AdditionalTimeEvent
-  | KickoffEvent
-  | SubstitutionEvent
-  | InjuryEvent
-  | SuspendEvent;
+export type SoccerEvent = FootballEvent;
 
 export function isStatusId(value: number): value is StatusId {
   return Number.isInteger(value) && value >= 1 && value <= 16;

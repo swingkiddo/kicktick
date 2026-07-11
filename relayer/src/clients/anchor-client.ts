@@ -9,7 +9,10 @@ import {
 import { AnchorProvider, Program, Wallet, BN } from "@anchor-lang/core";
 import type { Idl } from "@anchor-lang/core/dist/cjs/idl";
 import { Config } from "../config";
-import type { Fill, MarketRecord } from "../clob/types";
+import { MarketType } from "../domain/markets";
+import type { MarketOutcome, MarketRecord } from "../domain/markets";
+import type { Fill } from "../domain/settlement/types";
+import { u64ToLeBytes } from "../domain/ids";
 
 // ── IDL ──
 
@@ -17,26 +20,8 @@ const kicktickIdl: Idl = require("../idl/kicktick.json");
 
 // ── Type definitions (mirroring Anchor program types for type-safety) ──
 
-export type MarketType =
-  | "NextGoalSide"
-  | "GoalInWindow"
-  | "NextCorner"
-  | "CornerInWindow"
-  | "NextYellowCard"
-  | "YellowCardInWindow"
-  | "RedCardInMatch"
-  | "PenaltyShootoutShot"
-  | "PenaltyShot"
-  | "VARCheck";
-
-export type MarketOutcome =
-  | "None"
-  | "Yes"
-  | "No"
-  | "NoGoal"
-  | "Home"
-  | "Away"
-  | "Cancelled";
+export { MarketType } from "../domain/markets";
+export type { MarketOutcome } from "../domain/markets";
 
 export type Comparison = "GreaterThan" | "LessThan" | "EqualTo";
 export type BinaryExpression = "Add" | "Subtract";
@@ -160,12 +145,6 @@ function camelCase(s: string): string {
   return ENUM_VARIANTS[s] ?? s.charAt(0).toLowerCase() + s.slice(1);
 }
 
-function toLeBytes64(n: number): Buffer {
-  const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(BigInt(n), 0);
-  return buf;
-}
-
 // ── AnchorClient ──
 
 // Account namespace shape — keys match Anchor 1.0 camelCase conversion
@@ -212,17 +191,17 @@ export class AnchorClient {
 
   // ── PDA derivation helpers ──
 
-  static deriveMatchPda(fixtureId: number, programId: PublicKey): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync([Buffer.from("match"), toLeBytes64(fixtureId)], programId);
-  }
-
   static deriveConfigPda(programId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync([Buffer.from("config")], programId);
   }
 
+  static deriveMatchPda(fixtureId: number, programId: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync([Buffer.from("match"), u64ToLeBytes(fixtureId, "fixture id")], programId);
+  }
+
   static deriveMarketPda(fixtureId: bigint, marketType: number, marketSeq: bigint, programId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync([
-      Buffer.from("market"), toLeBytes64(Number(fixtureId)), Buffer.from([marketType]), toLeBytes64(Number(marketSeq)),
+      Buffer.from("market"), u64ToLeBytes(fixtureId, "fixture id"), Buffer.from([marketType]), u64ToLeBytes(marketSeq, "market sequence"),
     ], programId);
   }
 

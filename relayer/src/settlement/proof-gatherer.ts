@@ -1,5 +1,6 @@
 import { TxLineClient } from "../clients/txline-client";
-import { SoccerEvent, MarketType } from "../market/event-parser";
+import type { SoccerEvent } from "../domain/football/types";
+import { MarketType } from "../domain/markets";
 
 // ── Constants (mirrors kicktick/programs/kicktick/src/constants.rs) ──
 
