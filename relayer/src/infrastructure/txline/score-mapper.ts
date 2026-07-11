@@ -140,6 +140,39 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+const ACTION_ALIASES: Record<string, string> = {
+  goal: "goal",
+  corner: "corner",
+  yellowcard: "yellow_card",
+  redcard: "red_card",
+  penalty: "penalty",
+  penaltyawarded: "penalty",
+  penaltyoutcome: "penalty_outcome",
+  shot: "shot",
+  freekick: "free_kick",
+  throwin: "throw_in",
+  goalkick: "goal_kick",
+  var: "var",
+  varcheck: "var",
+  varend: "var_end",
+  possible: "possible",
+  status: "status",
+  score: "score_adjustment",
+  scoreadjustment: "score_adjustment",
+  additionaltime: "additional_time",
+  kickoff: "kickoff",
+  substitution: "substitution",
+  injury: "injury",
+  suspend: "suspend",
+};
+
+function normalizeAction(value: unknown): string {
+  const action = stringValue(value);
+  if (!action) return "";
+  const key = action.replace(/[\s_-]/g, "").toLowerCase();
+  return ACTION_ALIASES[key] ?? action;
+}
+
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
@@ -261,7 +294,7 @@ export function normalizeScoreEvent(
 
   return {
     fixtureId,
-    action: stringValue(input.Action ?? input.action) ?? "",
+    action: normalizeAction(input.Action ?? input.action),
     participant: numberValue(input.Participant ?? input.participant) as 1 | 2 | undefined,
     participant1IsHome: booleanValue(input.Participant1IsHome ?? input.participant1IsHome),
     gameState: stringValue(input.GameState ?? input.gameState) ?? (statusId === undefined ? "" : String(statusId)),
