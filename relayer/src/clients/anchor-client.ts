@@ -241,7 +241,7 @@ export class AnchorClient {
 
   static deriveDailyScoresRootsPda(txoracleProgramId: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
-      [Buffer.from("daily_scores_roots")],
+      [Buffer.from("daily_scores_merkle_roots")],
       txoracleProgramId,
     );
   }
