@@ -22,7 +22,7 @@ pub mod kicktick {
     // ===== Config =====
 
     pub fn init_config(ctx: Context<InitConfig>) -> Result<()> {
-        instructions::init_config::handler(ctx)
+        instructions::init_config::init_config_handler(ctx)
     }
 
     pub fn init_match(
@@ -31,7 +31,7 @@ pub mod kicktick {
         home_team: String,
         away_team: String,
     ) -> Result<()> {
-        instructions::init_match::handler(ctx, fixture_id, home_team, away_team)
+        instructions::init_match::init_match_handler(ctx, fixture_id, home_team, away_team)
     }
 
     pub fn set_relayer(ctx: Context<SetRelayer>, relayer: Pubkey) -> Result<()> {
@@ -103,37 +103,20 @@ pub mod kicktick {
 
     pub fn cancel_order(ctx: Context<CancelOrder>) -> Result<()> { instructions::order::cancel_order_handler(ctx) }
     pub fn expire_order(ctx: Context<ExpireOrder>) -> Result<()> { instructions::order::expire_order_handler(ctx) }
-
-    pub fn settle_complete_set_binary(
-        ctx: Context<SettleCompleteSetBinary>,
-        fill_seq: u64,
-        price_0_bps: u16,
-        price_1_bps: u16,
-        quantity: u64,
-    ) -> Result<()> {
-        instructions::trade::settle_complete_set_binary_handler(
-            ctx,
-            fill_seq,
-            price_0_bps,
-            price_1_bps,
-            quantity,
-        )
+    pub fn cancel_order_after_lock(ctx: Context<CancelOrderAfterLock>) -> Result<()> {
+        instructions::order::cancel_order_after_lock_handler(ctx)
     }
 
-    pub fn settle_complete_set_ternary(
-        ctx: Context<SettleCompleteSetTernary>,
+    pub fn settle_complete_set<'info>(
+        ctx: Context<'info, SettleCompleteSet<'info>>,
         fill_seq: u64,
-        price_0_bps: u16,
-        price_1_bps: u16,
-        price_2_bps: u16,
+        prices_bps: Vec<u16>,
         quantity: u64,
     ) -> Result<()> {
-        instructions::trade::settle_complete_set_ternary_handler(
+        instructions::trade::settle_complete_set_handler(
             ctx,
             fill_seq,
-            price_0_bps,
-            price_1_bps,
-            price_2_bps,
+            prices_bps,
             quantity,
         )
     }

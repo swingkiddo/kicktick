@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 pub enum OrderSide { Buy, Sell }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OrderStatus { Open, Cancelled, Expired }
+pub enum OrderStatus { Open, Partial, Filled, Cancelled, Expired }
 
 #[account]
 pub struct OrderAccount {
