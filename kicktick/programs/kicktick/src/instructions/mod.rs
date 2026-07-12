@@ -6,6 +6,7 @@ pub mod redeem;
 pub mod trade;
 pub mod user;
 pub mod order;
+pub mod token;
 
 pub use init_config::*;
 pub use init_match::*;

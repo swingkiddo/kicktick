@@ -1,6 +1,8 @@
 use crate::constants::*;
 use crate::state::*;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token};
+use crate::errors::KickTickError;
 
 #[derive(Accounts)]
 pub struct InitConfig<'info> {
@@ -16,10 +18,15 @@ pub struct InitConfig<'info> {
     )]
     pub config: Account<'info, Config>,
 
+    #[account(address = DEVNET_USDC_MINT @ KickTickError::InvalidCollateralMint)]
+    pub collateral_mint: Account<'info, Mint>,
+    #[account(address = anchor_spl::token::ID @ KickTickError::InvalidCollateralTokenProgram)]
+    pub token_program: Program<'info, Token>,
+
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<InitConfig>) -> Result<()> {
+pub fn init_config_handler(ctx: Context<InitConfig>) -> Result<()> {
     let config = &mut ctx.accounts.config;
     config.admin = ctx.accounts.admin.key();
     config.relayer = ctx.accounts.admin.key();
@@ -30,7 +37,11 @@ pub fn handler(ctx: Context<InitConfig>) -> Result<()> {
     )
     .0;
     config.finality_delay = 0;
-    config.min_liquidity = MIN_ROUND_LIQUIDITY;
+    require!(ctx.accounts.collateral_mint.decimals == USDC_DECIMALS, KickTickError::InvalidCollateralDecimals);
+    config.min_liquidity = MIN_MARKET_LIQUIDITY_BASE_UNITS;
+    config.collateral_mint = ctx.accounts.collateral_mint.key();
+    config.collateral_decimals = ctx.accounts.collateral_mint.decimals;
+    config.collateral_token_program = ctx.accounts.token_program.key();
     config.bump = ctx.bumps.config;
 
     Ok(())

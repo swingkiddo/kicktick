@@ -9,9 +9,12 @@ pub struct Config {
     /// Retained for compatibility with the Config PDA already initialized on devnet.
     pub finality_delay: i64,
     pub min_liquidity: u64,
+    pub collateral_mint: Pubkey,
+    pub collateral_decimals: u8,
+    pub collateral_token_program: Pubkey,
     pub bump: u8,
 }
 
 impl Config {
-    pub const LEN: usize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 1;
+    pub const LEN: usize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 32 + 1 + 32 + 1;
 }

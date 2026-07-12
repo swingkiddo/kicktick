@@ -2,13 +2,14 @@ use anchor_lang::prelude::*;
 
 // TxODDS Oracle program (devnet)
 pub const TXORACLE_PROGRAM_ID: Pubkey = pubkey!("6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J");
+pub const DEVNET_USDC_MINT: Pubkey = pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+pub const USDC_DECIMALS: u8 = 6;
 
 // PDA seed prefixes
 pub const SEED_CONFIG: &[u8] = b"config";
 pub const SEED_USER: &[u8] = b"user";
 pub const SEED_USER_VAULT: &[u8] = b"user_vault";
 pub const SEED_MATCH: &[u8] = b"match";
-pub const SEED_MATCH_VAULT: &[u8] = b"match_vault";
 pub const SEED_MARKET: &[u8] = b"market";
 pub const SEED_MARKET_VAULT: &[u8] = b"market_vault";
 pub const SEED_POSITION: &[u8] = b"position";
@@ -24,15 +25,8 @@ pub const MIN_PRICE_BPS: u16 = 100;
 pub const MAX_PRICE_BPS: u16 = 9_900;
 pub const MIN_TRADE_QUANTITY: u64 = 100;
 
-// Round timing defaults
-pub const DEFAULT_LOCK_SECONDS: i64 = 15;
-pub const DEFAULT_DEADLINE_SECONDS: i64 = 120;
-
 // Minimum liquidity required for a round
-pub const MIN_ROUND_LIQUIDITY: u64 = 10_000_000; // 0.01 SOL in lamports
-
-// CPI compute budget
-pub const CPI_COMPUTE_UNITS: u32 = 1_400_000;
+pub const MIN_MARKET_LIQUIDITY_BASE_UNITS: u64 = 10_000; // 0.01 USDC
 
 // StatKey constants (from TxLINE Soccer Feed v1.0)
 pub const STATKEY_P1_GOALS: u32 = 1;

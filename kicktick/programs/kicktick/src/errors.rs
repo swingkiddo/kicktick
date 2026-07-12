@@ -139,4 +139,18 @@ pub enum KickTickError {
     OrderNotExpired,
     #[msg("Order parameters do not match")]
     InvalidOrder,
+    #[msg("Invalid collateral mint")]
+    InvalidCollateralMint,
+    #[msg("Invalid collateral token program")]
+    InvalidCollateralTokenProgram,
+    #[msg("Invalid collateral mint decimals")]
+    InvalidCollateralDecimals,
+    #[msg("Invalid token account mint or authority")]
+    InvalidTokenAccount,
+    #[msg("Token vault balance does not match its collateral ledger")]
+    CollateralCustodyMismatch,
+    #[msg("Token vault must be empty before it can be closed")]
+    NonZeroVaultBalance,
+    #[msg("Fill quantity produces unsupported collateral rounding dust")]
+    RoundingDust,
 }
