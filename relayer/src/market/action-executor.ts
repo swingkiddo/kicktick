@@ -155,8 +155,10 @@ export class MarketActionExecutor {
     const market = this.marketFor(action);
     if (["RESOLVED_PENDING", "RESOLVED", "VOIDED"].includes(market.state)) return;
 
+    this.lifecycle.beginLocking(market.market);
+    this.changed(market.market);
     await this.fillSettlement.drain(market.market);
-    await this.lifecycle.freezeAndLock(market.market);
+    await this.lifecycle.lockAndCleanup(market.market);
     const actionId = `${market.market}:${action.type}`;
     this.persistAction(actionId, market, action, action.type === "resolve_market_onchain" ? "RESOLVE_ONCHAIN" : "RESOLVE_OFFCHAIN");
     this.store.markMarketActionRunning(actionId);

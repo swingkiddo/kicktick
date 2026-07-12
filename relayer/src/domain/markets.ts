@@ -15,7 +15,7 @@ export enum MarketType {
 
 export type MarketOutcome = "None" | "Yes" | "No" | "NoGoal" | "Home" | "Away" | "Cancelled";
 export type ResolvedMarketOutcome = Exclude<MarketOutcome, "None">;
-export type MarketState = "OPEN" | "LOCKED" | "RESOLVED_PENDING" | "RESOLVED" | "VOIDED";
+export type MarketState = "OPEN" | "LOCKING" | "LOCKED" | "RESOLVED_PENDING" | "RESOLVED" | "VOIDED";
 
 export interface MarketOpenParams {
   participant: number;

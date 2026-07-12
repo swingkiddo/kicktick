@@ -28,6 +28,7 @@ import { FillSettlementQueue } from "./clob/settlement";
 import { ClobWsApi } from "./clob/ws-api";
 import { ClobRecovery } from "./clob/recovery";
 import { ClobLifecycle } from "./clob/lifecycle";
+import { OrderCleanupProcessor } from "./clob/cleanup";
 import { MarketActionExecutor } from "./market/action-executor";
 import { TestController } from "./api/test-controller";
 import type { FixtureRecord } from "@swingkiddo/txodds-client";
@@ -102,9 +103,11 @@ async function main(): Promise<void> {
   const clobStore = new ClobStore(config.clobDbPath);
   const matchingEngine = new MatchingEngine(clobStore);
   const fillSettlement = new FillSettlementQueue(clobStore, anchorClient);
+  const orderCleanup = new OrderCleanupProcessor(clobStore, anchorClient);
   const clobLifecycle = new ClobLifecycle(clobStore, {
     lock: (market) => anchorClient.lockMarket(market.market).then(() => undefined),
-  });
+    getState: (market) => anchorClient.getMarketState(market.market),
+  }, orderCleanup);
   const clobWsApi = new ClobWsApi(wsServer, clobStore, matchingEngine, {
     network: config.solanaRpcUrl.includes("devnet") ? "devnet" : "mainnet-beta",
     programId: config.kicktickProgramId.toBase58(),
@@ -133,6 +136,17 @@ async function main(): Promise<void> {
     }
   } catch (error) {
     console.warn(`  CLOB recovery deferred: ${error instanceof Error ? error.message : error}`);
+  }
+  try {
+    orderCleanup.enqueueExpired();
+    await orderCleanup.processPending();
+    for (const market of clobStore.listMarkets(["LOCKING"])) {
+      const chainState = await anchorClient.getMarketState(market.market);
+      if (chainState !== "OPEN") clobLifecycle.reconcile(market.market, chainState);
+      await clobLifecycle.lockAndCleanup(market.market);
+    }
+  } catch (error) {
+    console.warn(`  Order cleanup recovery deferred: ${error instanceof Error ? error.message : error}`);
   }
   const proofGatherer = new ProofGatherer(txlineClient);
   const crank = new Crank(anchorClient, proofGatherer);
@@ -472,6 +486,13 @@ async function main(): Promise<void> {
     });
   }, 30000);
 
+  const cleanupTimer = setInterval(() => {
+    orderCleanup.enqueueExpired();
+    orderCleanup.processPending().catch(error => {
+      console.warn("Order cleanup failed:", error instanceof Error ? error.message : error);
+    });
+  }, 5_000);
+
   const cronTimer = setInterval(() => {
     const allFixtures = fixtureWatcher.getAllFixtures();
     for (const matchState of allFixtures) {
@@ -503,6 +524,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     console.log("\nShutting down...");
     clearInterval(timeoutTimer);
+    clearInterval(cleanupTimer);
     clearInterval(cronTimer);
     clearInterval(statusTimer);
     for (const ms of fixtureWatcher.getAllFixtures()) {

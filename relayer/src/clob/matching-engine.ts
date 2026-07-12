@@ -39,7 +39,7 @@ export class MatchingEngine {
   }
 
   match(market: MarketRecord, nowSeconds = Math.floor(Date.now() / 1000)): MatchResult {
-    const expired_order_ids = this.store.expireOrders(nowSeconds);
+    const expired_order_ids = this.store.listExpiredOrders(nowSeconds).map(order => order.id);
     if (market.state !== "OPEN" || nowSeconds >= market.expires_at - 2) return { fills: [], expired_order_ids };
     const fills: Fill[] = [];
     let sequence = this.store.nextFillSequence(market.market, market.chain_fill_sequence);
