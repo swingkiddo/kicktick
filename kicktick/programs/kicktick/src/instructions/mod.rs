@@ -7,6 +7,7 @@ pub mod trade;
 pub mod user;
 pub mod order;
 pub mod token;
+pub mod ctf;
 
 pub use init_config::*;
 pub use init_match::*;
@@ -16,3 +17,4 @@ pub use redeem::*;
 pub use trade::*;
 pub use user::*;
 pub use order::*;
+pub use ctf::*;

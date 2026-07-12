@@ -13,7 +13,7 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4");
+declare_id!("LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND");
 
 #[program]
 pub mod kicktick {
@@ -149,5 +149,13 @@ pub mod kicktick {
 
     pub fn close_market_vault(ctx: Context<CloseMarketVault>) -> Result<()> {
         instructions::redeem::close_market_vault_handler(ctx)
+    }
+
+    pub fn split(ctx: Context<Split>, amount: u64) -> Result<()> {
+        instructions::ctf::split_handler(ctx, amount)
+    }
+
+    pub fn merge(ctx: Context<Merge>, amount: u64) -> Result<()> {
+        instructions::ctf::merge_handler(ctx, amount)
     }
 }

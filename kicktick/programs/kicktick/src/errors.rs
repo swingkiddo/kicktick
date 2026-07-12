@@ -151,6 +151,6 @@ pub enum KickTickError {
     CollateralCustodyMismatch,
     #[msg("Token vault must be empty before it can be closed")]
     NonZeroVaultBalance,
-    #[msg("Fill quantity produces unsupported collateral rounding dust")]
-    RoundingDust,
+    #[msg("This instruction only supports binary YES/NO markets")]
+    BinaryMarketOnly,
 }
