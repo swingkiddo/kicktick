@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["tests/**/*", "scripts/**/*", "target/types/**/*"],
+  "include": ["tests/**/*", "scripts/**/*", "target/types/**/*", "../wallets"],
   "exclude": ["dist", "node_modules"]
 }
