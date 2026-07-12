@@ -74,6 +74,11 @@ function persistOnChainMatch(store: ClobStore, match: Awaited<ReturnType<AnchorC
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  // MVP trading mode: keep the WebSocket/CLOB control plane available without
+  // waiting for TxLINE, SSE, fixture reconciliation, or lifecycle recovery.
+  const clobOnlyMode = process.env.CLOB_ONLY_MODE === "false"
+    ? false
+    : config.testMode || process.env.CLOB_ONLY_MODE === "true";
   const rpcConnection = new Connection(config.solanaRpcUrl, {
     commitment: "confirmed",
     fetch: solanaRpcFetch,
@@ -92,6 +97,7 @@ async function main(): Promise<void> {
   console.log(`  TxLINE JWT:      ${config.txlineJwt ? "set" : "missing"}`);
   console.log(`  TxLINE Token:    ${config.txlineApiToken ? "set" : "missing"}`);
   console.log(`  CLOB database:   ${config.clobDbPath}`);
+  console.log(`  CLOB-only mode:  ${clobOnlyMode ? "enabled" : "disabled"}`);
 
   if (!config.txlineJwt && !config.txlineApiToken) {
     console.warn("No TxLINE credentials configured — attempting guest auth...");
@@ -123,30 +129,34 @@ async function main(): Promise<void> {
 
   fillSettlement.on("confirmed", fill => { if (fill) clobWsApi.publishMarket(fill.market); });
   fillSettlement.on("failed", fill => { if (fill) clobWsApi.publishMarket(fill.market); });
-  try {
-    const recovery = await new ClobRecovery(clobStore, matchingEngine).recover(anchorClient);
-    console.log(`  CLOB recovery: ${recovery.restored_orders} books, ${recovery.confirmed_fills.length} confirmed, ${recovery.retry_fills.length} pending`);
-    for (const fillId of recovery.retry_fills) {
-      const fill = clobStore.getFill(fillId);
-      if (fill) {
-        fillSettlement.submit(fill).catch((error) => {
-          console.warn(`CLOB fill retry failed for ${fillId}:`, error instanceof Error ? error.message : error);
-        });
+  if (!clobOnlyMode) {
+    try {
+      const recovery = await new ClobRecovery(clobStore, matchingEngine).recover(anchorClient);
+      console.log(`  CLOB recovery: ${recovery.restored_orders} books, ${recovery.confirmed_fills.length} confirmed, ${recovery.retry_fills.length} pending`);
+      for (const fillId of recovery.retry_fills) {
+        const fill = clobStore.getFill(fillId);
+        if (fill) {
+          fillSettlement.submit(fill).catch((error) => {
+            console.warn(`CLOB fill retry failed for ${fillId}:`, error instanceof Error ? error.message : error);
+          });
+        }
       }
+    } catch (error) {
+      console.warn(`  CLOB recovery deferred: ${error instanceof Error ? error.message : error}`);
     }
-  } catch (error) {
-    console.warn(`  CLOB recovery deferred: ${error instanceof Error ? error.message : error}`);
-  }
-  try {
-    orderCleanup.enqueueExpired();
-    await orderCleanup.processPending();
-    for (const market of clobStore.listMarkets(["LOCKING"])) {
-      const chainState = await anchorClient.getMarketState(market.market);
-      if (chainState !== "OPEN") clobLifecycle.reconcile(market.market, chainState);
-      await clobLifecycle.lockAndCleanup(market.market);
+    try {
+      orderCleanup.enqueueExpired();
+      await orderCleanup.processPending();
+      for (const market of clobStore.listMarkets(["LOCKING"])) {
+        const chainState = await anchorClient.getMarketState(market.market);
+        if (chainState !== "OPEN") clobLifecycle.reconcile(market.market, chainState);
+        await clobLifecycle.lockAndCleanup(market.market);
+      }
+    } catch (error) {
+      console.warn(`  Order cleanup recovery deferred: ${error instanceof Error ? error.message : error}`);
     }
-  } catch (error) {
-    console.warn(`  Order cleanup recovery deferred: ${error instanceof Error ? error.message : error}`);
+  } else {
+    console.log("  CLOB recovery/cleanup: skipped in CLOB-only mode");
   }
   const proofGatherer = new ProofGatherer(txlineClient);
   const crank = new Crank(anchorClient, proofGatherer);
@@ -158,19 +168,25 @@ async function main(): Promise<void> {
     config.kicktickProgramId,
     { onMarketChanged: (market) => clobWsApi.publishMarket(market) },
   );
-  try {
-    await marketActions.recover(anchorClient);
-  } catch (error) {
-    console.warn(`  Market lifecycle recovery deferred: ${error instanceof Error ? error.message : error}`);
+  if (!clobOnlyMode) {
+    try {
+      await marketActions.recover(anchorClient);
+    } catch (error) {
+      console.warn(`  Market lifecycle recovery deferred: ${error instanceof Error ? error.message : error}`);
+    }
+  } else {
+    console.log("  Market lifecycle recovery: skipped in CLOB-only mode");
   }
   const fixtureWatcher = new FixtureWatcher(txlineClient, config);
   const marketTrigger = new MarketTrigger();
-  try {
-    const onChainMatches = await anchorClient.listMatches();
-    for (const match of onChainMatches) persistOnChainMatch(clobStore, match);
-    console.log(`  Match reconciliation: ${onChainMatches.length} on-chain matches imported`);
-  } catch (error) {
-    console.warn(`  Match reconciliation deferred: ${error instanceof Error ? error.message : error}`);
+  if (!clobOnlyMode) {
+    try {
+      const onChainMatches = await anchorClient.listMatches();
+      for (const match of onChainMatches) persistOnChainMatch(clobStore, match);
+      console.log(`  Match reconciliation: ${onChainMatches.length} on-chain matches imported`);
+    } catch (error) {
+      console.warn(`  Match reconciliation deferred: ${error instanceof Error ? error.message : error}`);
+    }
   }
   const restoredPdas = new Map<number, string>();
   for (const market of clobStore.listMarkets()) {
@@ -188,15 +204,16 @@ async function main(): Promise<void> {
   );
   console.log(`  SSE log file:   ${sseLogger.path}`);
 
-  let jwt = config.txlineJwt;
-  if (!jwt) {
-    console.log("Authenticating with TxLINE...");
-    jwt = await txlineClient.authenticate();
-    txlineClient.setJwt(jwt);
-    console.log("TxLINE JWT obtained.");
-  }
+  if (!clobOnlyMode) {
+    let jwt = config.txlineJwt;
+    if (!jwt) {
+      console.log("Authenticating with TxLINE...");
+      jwt = await txlineClient.authenticate();
+      txlineClient.setJwt(jwt);
+      console.log("TxLINE JWT obtained.");
+    }
 
-  if (!config.txlineApiToken) {
+    if (!config.txlineApiToken) {
     console.log("Activating API token (World Cup free tier)...");
     const keypair = Keypair.fromSecretKey(Buffer.from(config.solanaPrivateKey, "hex"));
     try {
@@ -246,6 +263,9 @@ async function main(): Promise<void> {
       console.error("Failed to activate API token:", err instanceof Error ? err.message : err);
       console.warn("Continuing with limited guest access...");
     }
+    }
+  } else {
+    console.log("  TxLINE auth/API token: skipped in CLOB-only mode");
   }
 
   crank.on("status", (status: CrankStatus) => {
@@ -309,6 +329,7 @@ async function main(): Promise<void> {
     console.log(`[WS] Sent ${allFixtures.length} match states to new subscriber`);
   });
 
+  if (!clobOnlyMode) {
   console.log(`Fetching fixtures for competition ${config.competitionId} (World Cup)...`);
   let fixtures: { FixtureId: number }[] = [];
   try {
@@ -359,6 +380,8 @@ async function main(): Promise<void> {
     }
   }
 
+  }
+
   // Restore matches created through the dev control plane (or any on-chain
   // match without a TxLINE fixture) so they survive a relayer restart.
   for (const match of clobStore.listMatches()) {
@@ -404,7 +427,7 @@ async function main(): Promise<void> {
     }));
   }
 
-  const sseLoop = (async () => {
+  const sseLoop = clobOnlyMode ? Promise.resolve() : (async () => {
     console.log("Starting SSE scores stream...");
     let lastConnectionId = 0;
     for await (const event of txlineClient.streamScores()) {
@@ -465,7 +488,8 @@ async function main(): Promise<void> {
     }
   })();
 
-  const timeoutTimer = setInterval(() => {
+  let timeoutTimer: ReturnType<typeof setInterval> | undefined;
+  if (!clobOnlyMode) timeoutTimer = setInterval(() => {
     const allFixtures = fixtureWatcher.getAllFixtures();
     for (const matchState of allFixtures) {
       const fixtureId = matchState.fixtureId;
@@ -484,16 +508,18 @@ async function main(): Promise<void> {
     marketActions.recover(anchorClient).catch((error) => {
       console.warn("Periodic market lifecycle recovery failed:", error instanceof Error ? error.message : error);
     });
-  }, 30000);
+  }, 5000);
 
-  const cleanupTimer = setInterval(() => {
+  let cleanupTimer: ReturnType<typeof setInterval> | undefined;
+  if (!clobOnlyMode) cleanupTimer = setInterval(() => {
     orderCleanup.enqueueExpired();
     orderCleanup.processPending().catch(error => {
       console.warn("Order cleanup failed:", error instanceof Error ? error.message : error);
     });
   }, 5_000);
 
-  const cronTimer = setInterval(() => {
+  let cronTimer: ReturnType<typeof setInterval> | undefined;
+  if (!clobOnlyMode) cronTimer = setInterval(() => {
     const allFixtures = fixtureWatcher.getAllFixtures();
     for (const matchState of allFixtures) {
       const fixtureId = matchState.fixtureId;
@@ -505,7 +531,8 @@ async function main(): Promise<void> {
     }
   }, 60_000);
 
-  const statusTimer = setInterval(async () => {
+  let statusTimer: ReturnType<typeof setInterval> | undefined;
+  if (!clobOnlyMode) statusTimer = setInterval(async () => {
     const solBalance = await rpcConnection.getBalance(anchorClient.walletPublicKey).catch(() => 0);
     wsServer.broadcast({
       type: "system_status",
@@ -523,10 +550,10 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log("\nShutting down...");
-    clearInterval(timeoutTimer);
-    clearInterval(cleanupTimer);
-    clearInterval(cronTimer);
-    clearInterval(statusTimer);
+    if (timeoutTimer) clearInterval(timeoutTimer);
+    if (cleanupTimer) clearInterval(cleanupTimer);
+    if (cronTimer) clearInterval(cronTimer);
+    if (statusTimer) clearInterval(statusTimer);
     for (const ms of fixtureWatcher.getAllFixtures()) {
       marketTrigger.stopCronWindows(ms.fixtureId);
     }

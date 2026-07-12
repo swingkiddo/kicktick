@@ -10,7 +10,7 @@ const wsUrl = process.env.TEST_WS_URL || "ws://127.0.0.1:8080";
 const walletDir = process.env.TEST_WALLETS_DIR || path.resolve(__dirname, "../../../kicktick/scripts/wallets");
 const names = (process.env.TEST_WALLETS || "wallet-01.json,wallet-02.json").split(",").map(value => value.trim()).filter(Boolean);
 const market = process.env.TEST_MARKET || "";
-const programId = process.env.KICKTICK_PROGRAM_ID || "7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4";
+const programId = process.env.KICKTICK_PROGRAM_ID || "LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND";
 const quantity = process.env.TEST_QUANTITY || "100";
 const price = Number(process.env.TEST_PRICE_BPS || "5000");
 
