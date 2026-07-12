@@ -20,6 +20,8 @@ export interface ClobWsApiOptions {
 
 const CHALLENGE_DOMAIN = "kicktick-clob-auth";
 const nowSeconds = () => Math.floor(Date.now() / 1000);
+const ceilPriceCost = (quantity: bigint, priceBps: number): bigint =>
+  (quantity * BigInt(priceBps) + 9_999n) / 10_000n;
 const send = (ws: WebSocket, type: string, data: unknown) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(
   { type, data },
   (_key, value) => typeof value === "bigint" ? value.toString() : value,
@@ -31,7 +33,7 @@ const orderView = (order: StoredOrder) => ({
   remaining_quantity: order.remaining_quantity.toString(),
   pending_quantity: order.pending_quantity.toString(),
   reserved_cost: order.side === "BUY"
-    ? ((order.remaining_quantity * BigInt(order.price_bps)) / 10_000n).toString()
+    ? ceilPriceCost(order.remaining_quantity, order.price_bps).toString()
     : "0",
   settlement_status: order.pending_quantity > 0n ? "PENDING" : "CONFIRMED",
 });
@@ -55,7 +57,7 @@ export class ClobWsApi {
     const accounts = (ix as any).accounts as PublicKey[];
     if (!accounts?.[0]?.equals(new PublicKey(payload.owner)) || !accounts?.[2]?.equals(new PublicKey(payload.market)) || !accounts?.[3]?.equals(new PublicKey(payload.order_pda))) throw new ProtocolError("create_order accounts do not match payload");
     const info = await this.options.connection.getAccountInfo(new PublicKey(payload.order_pda), "confirmed");
-    if (!info || info.data.length < 110) throw new ProtocolError("order PDA is missing");
+    if (!info || info.data.length < 118) throw new ProtocolError("order PDA is missing");
     const d = info.data;
     const owner = new PublicKey(d.subarray(8, 40));
     const market = new PublicKey(d.subarray(40, 72));
@@ -63,7 +65,7 @@ export class ClobWsApi {
     const outcome = d[73];
     const price = d.readUInt16LE(74);
     const quantity = d.readBigUInt64LE(76);
-    const nonce = d.readBigUInt64LE(92);
+    const nonce = d.readBigUInt64LE(100);
     if (!owner.equals(new PublicKey(payload.owner)) || !market.equals(new PublicKey(payload.market)) || side !== payload.side || outcome !== payload.outcome_index || price !== payload.price_bps || quantity !== BigInt(payload.quantity) || nonce !== BigInt(payload.nonce)) throw new ProtocolError("on-chain order does not match signed payload");
   }
 
@@ -142,7 +144,7 @@ export class ClobWsApi {
       const verified = verifySignedOrder(order);
       await this.verifyCreateOrder(order.payload);
       const market = this.store.getMarket(order.payload.market);
-      if (!market || market.state !== "OPEN" || market.outcome_count <= order.payload.outcome_index || nowSeconds() >= market.expires_at - 2) throw new ProtocolError("market is not accepting orders");
+      if (!market || market.state !== "OPEN" || market.outcome_count !== 2 || market.outcome_count <= order.payload.outcome_index || nowSeconds() >= market.expires_at - 2) throw new ProtocolError("market is not accepting binary orders");
       const now = Date.now();
       const stored: StoredOrder = { ...order.payload, id: verified.id, signature: order.signature, original_quantity: verified.quantity, remaining_quantity: verified.quantity, pending_quantity: 0n, status: "OPEN", priority_at: now, created_at: now, updated_at: now };
       this.store.insertOrder(stored);

@@ -20,7 +20,7 @@ export interface Config {
   solanaPrivateKey: string;
   kicktickProgramId: PublicKey;
   txoracleProgramId: PublicKey;
-  usdtMint: PublicKey;
+  collateralMint: PublicKey;
   txlMint: PublicKey;
   wsPort: number;
   competitionId: number;
@@ -57,8 +57,8 @@ export function loadConfig(): Config {
     txoracleProgramId: new PublicKey(
       process.env.TXORACLE_PROGRAM_ID || constants.txoracleProgramId
     ),
-    usdtMint: new PublicKey(
-      process.env.USDT_MINT || constants.usdtMint
+    collateralMint: new PublicKey(
+      process.env.COLLATERAL_MINT || constants.collateralMint
     ),
     txlMint: new PublicKey(
       process.env.TXL_MINT || constants.txlMint

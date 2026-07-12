@@ -323,6 +323,8 @@ export class AnchorClient {
         config: AnchorClient.deriveConfigPda(this.programId)[0],
         market,
         marketVault,
+        collateralMint: this.config.collateralMint,
+        tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       }).transaction(),
     );
@@ -565,12 +567,12 @@ export class AnchorClient {
 
   async settleCompleteSetFill(fill: Fill, orders: StoredOrder[]): Promise<string> {
     const market = new PublicKey(fill.market);
-    if (orders.length !== fill.prices_bps.length || (orders.length !== 2 && orders.length !== 3)) throw new AnchorClientError("complete-set fill order count does not match prices");
+    if (orders.length !== 2 || fill.prices_bps.length !== 2) throw new AnchorClientError("complete-set fills require exactly two binary orders");
     if (orders.some((order, index) => order.outcome_index !== index)) throw new AnchorClientError("complete-set orders must be sorted by outcome index");
     const accounts = {
       relayer: this.walletPublicKey, config: AnchorClient.deriveConfigPda(this.programId)[0], market,
       marketVault: AnchorClient.deriveMarketVaultPda(market, this.programId)[0],
-      collateralMint: this.config.usdtMint, tokenProgram: TOKEN_PROGRAM_ID,
+      collateralMint: this.config.collateralMint, tokenProgram: TOKEN_PROGRAM_ID,
     };
     const remainingAccounts = orders.flatMap(order => {
       const owner = new PublicKey(order.owner);

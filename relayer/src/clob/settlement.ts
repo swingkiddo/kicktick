@@ -41,8 +41,7 @@ export class FillSettlementQueue extends EventEmitter {
             if (!order) throw new Error(`missing complete-set order ${id}`);
             return order;
           })
-          .sort((a, b) => a.outcome_index - b.outcome_index)
-          .map(order => order.owner))
+          .sort((a, b) => a.outcome_index - b.outcome_index))
         : await this.anchor.settleClobFill(fill, this.orderPdaFor(fill, fill.buyer!), this.orderPdaFor(fill, fill.seller!));
       this.store.markFillSubmitted(fill.id, signature);
       this.store.confirmFill(fill.id);
