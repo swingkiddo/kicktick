@@ -124,7 +124,8 @@ export class TestController {
     const expiresAt = Math.floor(Date.now() / 1000) + data.deadlineSeconds;
     const outcomeCount = [MarketType.NextGoalSide, MarketType.NextCorner, MarketType.NextYellowCard, MarketType.PenaltyShootoutShot].includes(data.marketType as MarketType) ? 3 : 2;
     this.options.lifecycle.open({ market: market.toBase58(), fixture_id: String(data.fixtureId), market_type: data.marketType, market_seq: String(data.marketSeq), outcome_count: outcomeCount, expires_at: expiresAt, state: "OPEN" });
-    this.options.trigger.registerSyntheticMarket(data.fixtureId, data.marketSeq, data.marketType as MarketType, expiresAt);
+    // MarketTracker timestamps are milliseconds; persistence and the contract use seconds.
+    this.options.trigger.registerSyntheticMarket(data.fixtureId, data.marketSeq, data.marketType as MarketType, expiresAt * 1000);
     this.options.clob.publishMarket(market.toBase58());
     this.ws.broadcast({ type: "market_opened", data: { fixtureId: data.fixtureId, marketSeq: data.marketSeq, marketType: data.marketType, lockSeconds: 0, deadlineSeconds: data.deadlineSeconds, expiresAt: expiresAt * 1000 } });
     send(ws, "test_ack", { command: "test_create_market", fixtureId: data.fixtureId, marketSeq: data.marketSeq, market: market.toBase58(), txSig });

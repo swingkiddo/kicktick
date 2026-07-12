@@ -159,10 +159,10 @@ export class MarketTrigger extends EventEmitter {
     );
   }
 
-  registerSyntheticMarket(fixtureId: number, marketSeq: number, marketType: MarketType, expiresAt: number): void {
+  registerSyntheticMarket(fixtureId: number, marketSeq: number, marketType: MarketType, expiresAtMs: number): void {
     const f = this.getOrCreateFixture(fixtureId);
     f.marketCounter = Math.max(f.marketCounter, marketSeq + 1);
-    f.markets.set(marketSeq, { marketSeq, marketType, status: "open", openedAt: Date.now(), expiresAt });
+    f.markets.set(marketSeq, { marketSeq, marketType, status: "open", openedAt: Date.now(), expiresAt: expiresAtMs });
   }
 
   processEvent(event: SoccerEvent, fixtureId: number, currentMatchState: MatchState): void {
