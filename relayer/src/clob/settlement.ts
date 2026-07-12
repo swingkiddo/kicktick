@@ -21,6 +21,11 @@ export class FillSettlementQueue extends EventEmitter {
     return this.tails.get(market) ?? Promise.resolve();
   }
 
+  /** Wait for all fills accepted before shutdown to leave the submission queues. */
+  async drainAll(): Promise<void> {
+    await Promise.all([...this.tails.values()].map(tail => tail.catch(() => undefined)));
+  }
+
   private async settle(fill: Fill): Promise<void> {
     const market = this.store.getMarket(fill.market);
     const nowSeconds = Math.floor(Date.now() / 1000);
