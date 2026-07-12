@@ -6,6 +6,9 @@ import type { MatchRecord } from "../domain/matches";
 import type { Fill, FillStatus } from "../domain/settlement/types";
 import {
   FixtureCursor,
+  CleanupActionType,
+  CleanupIntent,
+  CleanupStatus,
   MarketActionRecord,
   MarketActionStatus,
   OrderStatus,
@@ -81,6 +84,26 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX IF NOT EXISTS matches_status ON matches(status);
   `,
   `ALTER TABLE orders ADD COLUMN order_pda TEXT; ALTER TABLE orders ADD COLUMN create_tx_signature TEXT;`,
+  `
+  CREATE TABLE IF NOT EXISTS order_cleanup (
+    id TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL REFERENCES orders(id),
+    order_pda TEXT NOT NULL,
+    market TEXT NOT NULL REFERENCES markets(market),
+    owner TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    tx_signature TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS order_cleanup_active
+    ON order_cleanup(order_id, action_type)
+    WHERE status IN ('PENDING', 'RUNNING', 'FAILED');
+  CREATE INDEX IF NOT EXISTS order_cleanup_pending ON order_cleanup(status, market, created_at);
+  `,
 ];
 
 type Row = Record<string, unknown>;
@@ -127,6 +150,16 @@ function asMarketAction(row: Row): MarketActionRecord {
   };
 }
 
+function asCleanupIntent(row: Row): CleanupIntent {
+  return {
+    id: String(row.id), order_id: String(row.order_id), order_pda: String(row.order_pda),
+    market: String(row.market), owner: String(row.owner), action_type: String(row.action_type) as CleanupActionType,
+    status: String(row.status) as CleanupStatus, tx_signature: row.tx_signature ? String(row.tx_signature) : undefined,
+    attempts: number(row.attempts), error: row.error ? String(row.error) : undefined,
+    created_at: number(row.created_at), updated_at: number(row.updated_at),
+  };
+}
+
 function asMatch(row: Row): MatchRecord {
   return {
     fixture_id: String(row.fixture_id),
@@ -158,7 +191,7 @@ export class ClobStore {
 
   clearForTest(): void {
     this.db.transaction(() => {
-      this.db.exec("DELETE FROM market_actions; DELETE FROM fills; DELETE FROM orders; DELETE FROM nonces; DELETE FROM fixture_cursors; DELETE FROM markets; DELETE FROM matches;");
+      this.db.exec("DELETE FROM order_cleanup; DELETE FROM market_actions; DELETE FROM fills; DELETE FROM orders; DELETE FROM nonces; DELETE FROM fixture_cursors; DELETE FROM markets; DELETE FROM matches;");
     })();
   }
 
@@ -300,15 +333,57 @@ export class ClobStore {
     return result.changes === 1;
   }
 
-  consumeNonce(owner: string, nonce: string, kind: "CANCELLATION"): void {
-    this.db.prepare("INSERT INTO nonces(owner,nonce,kind,created_at) VALUES (?,?,?,?)").run(owner, nonce, kind, Date.now());
+  listExpiredOrders(nowSeconds: number): StoredOrder[] {
+    return (this.db.prepare("SELECT * FROM orders WHERE status IN ('OPEN','PARTIAL') AND expires_at <= ? ORDER BY expires_at, id").all(nowSeconds) as Row[]).map(asOrder);
   }
 
-  expireOrders(nowSeconds: number): string[] {
-    const rows = this.db.prepare("SELECT id FROM orders WHERE status IN ('OPEN','PARTIAL') AND expires_at <= ?").all(nowSeconds) as { id: string }[];
-    const update = this.db.prepare("UPDATE orders SET status='EXPIRED', pending_quantity='0', updated_at=? WHERE id=?");
-    this.db.transaction(() => rows.forEach(({ id }) => update.run(Date.now(), id)))();
-    return rows.map(row => row.id);
+  createCleanupIntent(order: StoredOrder, actionType: CleanupActionType): CleanupIntent {
+    const id = `${actionType}:${order.order_pda}`;
+    const pendingStatus: OrderStatus = actionType === "EXPIRE" ? "EXPIRE_PENDING" : "CANCEL_PENDING";
+    const now = Date.now();
+    this.db.transaction(() => {
+      this.db.prepare(`INSERT INTO order_cleanup(id,order_id,order_pda,market,owner,action_type,status,attempts,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,'PENDING',0,?,?) ON CONFLICT(id) DO NOTHING`).run(
+        id, order.id, order.order_pda, order.market, order.owner, actionType, now, now,
+      );
+      this.db.prepare("UPDATE orders SET status=?, updated_at=? WHERE id=? AND status IN ('OPEN','PARTIAL')").run(pendingStatus, now, order.id);
+    })();
+    return this.getCleanupIntent(id)!;
+  }
+
+  getCleanupIntent(id: string): CleanupIntent | undefined {
+    const row = this.db.prepare("SELECT * FROM order_cleanup WHERE id=?").get(id) as Row | undefined;
+    return row ? asCleanupIntent(row) : undefined;
+  }
+
+  listCleanupIntents(statuses: CleanupStatus[] = ["PENDING", "RUNNING", "FAILED"], market?: string): CleanupIntent[] {
+    const placeholders = statuses.map(() => "?").join(",");
+    const rows = market
+      ? this.db.prepare(`SELECT * FROM order_cleanup WHERE status IN (${placeholders}) AND market=? ORDER BY created_at,id`).all(...statuses, market)
+      : this.db.prepare(`SELECT * FROM order_cleanup WHERE status IN (${placeholders}) ORDER BY created_at,id`).all(...statuses);
+    return (rows as Row[]).map(asCleanupIntent);
+  }
+
+  markCleanupRunning(id: string): void {
+    this.db.prepare("UPDATE order_cleanup SET status='RUNNING',attempts=attempts+1,error=NULL,updated_at=? WHERE id=?").run(Date.now(), id);
+  }
+
+  confirmCleanup(id: string, signature?: string): void {
+    this.db.transaction(() => {
+      const intent = this.getCleanupIntent(id);
+      if (!intent || intent.status === "CONFIRMED") return;
+      const orderStatus: OrderStatus = intent.action_type === "EXPIRE" ? "EXPIRED" : "CANCELLED";
+      this.db.prepare("UPDATE order_cleanup SET status='CONFIRMED',tx_signature=COALESCE(?,tx_signature),error=NULL,updated_at=? WHERE id=?").run(signature ?? null, Date.now(), id);
+      this.db.prepare("UPDATE orders SET status=?,pending_quantity='0',updated_at=? WHERE id=?").run(orderStatus, Date.now(), intent.order_id);
+    })();
+  }
+
+  failCleanup(id: string, error: string): void {
+    this.db.prepare("UPDATE order_cleanup SET status='FAILED',error=?,updated_at=? WHERE id=?").run(error, Date.now(), id);
+  }
+
+  consumeNonce(owner: string, nonce: string, kind: "CANCELLATION"): void {
+    this.db.prepare("INSERT INTO nonces(owner,nonce,kind,created_at) VALUES (?,?,?,?)").run(owner, nonce, kind, Date.now());
   }
 
   /** Atomically reserves order quantities and records a durable fill before chain submission. */

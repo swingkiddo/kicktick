@@ -7,12 +7,14 @@ import {
   Connection,
 } from "@solana/web3.js";
 import { AnchorProvider, Program, Wallet, BN } from "@anchor-lang/core";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import type { Idl } from "@anchor-lang/core/dist/cjs/idl";
 import { Config } from "../config";
 import { MarketType } from "../domain/markets";
 import type { MarketOutcome, MarketRecord } from "../domain/markets";
 import type { OnChainMatch } from "../domain/matches";
 import type { Fill } from "../domain/settlement/types";
+import type { StoredOrder } from "../clob/types";
 import { u64ToLeBytes } from "../domain/ids";
 import { solanaRpcFetch } from "./solana-rpc";
 
@@ -335,6 +337,37 @@ export class AnchorClient {
     }).transaction());
   }
 
+  async expireOrder(order: StoredOrder): Promise<string> {
+    const owner = new PublicKey(order.owner);
+    const market = new PublicKey(order.market);
+    return this.buildAndSend((this.program.methods as any).expireOrder().accountsStrict({
+      relayer: this.walletPublicKey,
+      config: AnchorClient.deriveConfigPda(this.programId)[0],
+      userAccount: AnchorClient.deriveUserAccountPda(owner, this.programId)[0],
+      order: new PublicKey(order.order_pda),
+      market,
+      position: AnchorClient.derivePositionPda(market, owner, this.programId)[0],
+    }).transaction());
+  }
+
+  async cancelOrderAfterLock(order: StoredOrder): Promise<string> {
+    const owner = new PublicKey(order.owner);
+    const market = new PublicKey(order.market);
+    return this.buildAndSend((this.program.methods as any).cancelOrderAfterLock().accountsStrict({
+      relayer: this.walletPublicKey,
+      config: AnchorClient.deriveConfigPda(this.programId)[0],
+      owner,
+      userAccount: AnchorClient.deriveUserAccountPda(owner, this.programId)[0],
+      order: new PublicKey(order.order_pda),
+      market,
+      position: AnchorClient.derivePositionPda(market, owner, this.programId)[0],
+    }).transaction());
+  }
+
+  async orderExists(orderPda: string): Promise<boolean> {
+    return (await this.provider.connection.getAccountInfo(new PublicKey(orderPda), "confirmed")) !== null;
+  }
+
   async resolveMarketWithProof(marketAddress: string, proofArgs: SettleProofArgs): Promise<string> {
     const market = new PublicKey(marketAddress);
     const [dailyScoresRootsPda] = AnchorClient.deriveDailyScoresRootsPda(
@@ -530,25 +563,27 @@ export class AnchorClient {
     throw new AnchorClientError(`complete-set fill ${fill.id} must be submitted with owner expansion`);
   }
 
-  async settleCompleteSetFill(fill: Fill, owners: string[]): Promise<string> {
+  async settleCompleteSetFill(fill: Fill, orders: StoredOrder[]): Promise<string> {
     const market = new PublicKey(fill.market);
-    if (owners.length !== fill.prices_bps.length || (owners.length !== 2 && owners.length !== 3)) throw new AnchorClientError("complete-set fill owner count does not match prices");
-    const accounts: Record<string, PublicKey> = {
+    if (orders.length !== fill.prices_bps.length || (orders.length !== 2 && orders.length !== 3)) throw new AnchorClientError("complete-set fill order count does not match prices");
+    if (orders.some((order, index) => order.outcome_index !== index)) throw new AnchorClientError("complete-set orders must be sorted by outcome index");
+    const accounts = {
       relayer: this.walletPublicKey, config: AnchorClient.deriveConfigPda(this.programId)[0], market,
-      marketVault: AnchorClient.deriveMarketVaultPda(market, this.programId)[0], systemProgram: SystemProgram.programId,
+      marketVault: AnchorClient.deriveMarketVaultPda(market, this.programId)[0],
+      collateralMint: this.config.usdtMint, tokenProgram: TOKEN_PROGRAM_ID,
     };
-    owners.forEach((ownerString, index) => {
-      const owner = new PublicKey(ownerString);
-      accounts[`outcome${index}Owner`] = owner;
-      accounts[`outcome${index}Account`] = AnchorClient.deriveUserAccountPda(owner, this.programId)[0];
-      accounts[`outcome${index}Vault`] = AnchorClient.deriveUserVaultPda(owner, this.programId)[0];
-      accounts[`outcome${index}Position`] = AnchorClient.derivePositionPda(market, owner, this.programId)[0];
+    const remainingAccounts = orders.flatMap(order => {
+      const owner = new PublicKey(order.owner);
+      return [
+        { pubkey: AnchorClient.deriveUserAccountPda(owner, this.programId)[0], isSigner: false, isWritable: true },
+        { pubkey: AnchorClient.deriveUserVaultPda(owner, this.programId)[0], isSigner: false, isWritable: true },
+        { pubkey: new PublicKey(order.order_pda), isSigner: false, isWritable: true },
+        { pubkey: AnchorClient.derivePositionPda(market, owner, this.programId)[0], isSigner: false, isWritable: true },
+      ];
     });
-    const methods: any = this.program.methods;
-    const method = owners.length === 2
-      ? methods.settleCompleteSetBinary(new BN(fill.market_sequence.toString()), fill.prices_bps[0], fill.prices_bps[1], new BN(fill.quantity.toString()))
-      : methods.settleCompleteSetTernary(new BN(fill.market_sequence.toString()), fill.prices_bps[0], fill.prices_bps[1], fill.prices_bps[2], new BN(fill.quantity.toString()));
-    return this.buildAndSend(method.accountsStrict(accounts).transaction());
+    return this.buildAndSend((this.program.methods as any).settleCompleteSet(
+      new BN(fill.market_sequence.toString()), fill.prices_bps, new BN(fill.quantity.toString()),
+    ).accountsStrict(accounts).remainingAccounts(remainingAccounts).transaction());
   }
 
   async getNextFillSequence(market: string): Promise<bigint> {

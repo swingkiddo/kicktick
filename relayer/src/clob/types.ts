@@ -5,7 +5,7 @@ export const MAX_PRICE_BPS = 9_900;
 export const MIN_TRADE_QUANTITY = 100n;
 
 export type OrderSide = "BUY" | "SELL";
-export type OrderStatus = "OPEN" | "PARTIAL" | "FILLED" | "CANCELLED" | "EXPIRED" | "REJECTED";
+export type OrderStatus = "OPEN" | "PARTIAL" | "FILLED" | "CANCEL_PENDING" | "CANCELLED" | "EXPIRE_PENDING" | "EXPIRED" | "FAILED" | "REJECTED";
 export type { Fill, FillStatus } from "../domain/settlement/types";
 export type { MarketRecord, MarketState } from "../domain/markets";
 export type { MatchRecord } from "../domain/matches";
@@ -57,6 +57,24 @@ export interface StoredOrder extends OrderPayload {
   pending_quantity: bigint;
   status: OrderStatus;
   priority_at: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export type CleanupActionType = "EXPIRE" | "CANCEL_AFTER_LOCK";
+export type CleanupStatus = "PENDING" | "RUNNING" | "CONFIRMED" | "FAILED";
+
+export interface CleanupIntent {
+  id: string;
+  order_id: string;
+  order_pda: string;
+  market: string;
+  owner: string;
+  action_type: CleanupActionType;
+  status: CleanupStatus;
+  tx_signature?: string;
+  attempts: number;
+  error?: string;
   created_at: number;
   updated_at: number;
 }
