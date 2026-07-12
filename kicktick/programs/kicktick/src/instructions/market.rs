@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program;
+use anchor_spl::token::{Mint, Token, TokenAccount};
 
 use crate::constants::*;
 use crate::errors::KickTickError;
@@ -24,9 +24,13 @@ pub struct InitMarket<'info> {
     #[account(init, payer = authority, space = Market::LEN,
         seeds = [SEED_MARKET, &fixture_id.to_le_bytes(), &[market_type as u8], &market_seq.to_le_bytes()], bump)]
     pub market: Account<'info, Market>,
-    /// CHECK: A zero-data system PDA created and verified by the handler.
-    #[account(mut)]
-    pub market_vault: UncheckedAccount<'info>,
+    #[account(init, payer = authority, seeds = [SEED_MARKET_VAULT, market.key().as_ref()], bump,
+        token::mint = collateral_mint, token::authority = market, token::token_program = token_program)]
+    pub market_vault: Account<'info, TokenAccount>,
+    #[account(address = config.collateral_mint @ KickTickError::InvalidCollateralMint)]
+    pub collateral_mint: Account<'info, Mint>,
+    #[account(address = config.collateral_token_program @ KickTickError::InvalidCollateralTokenProgram)]
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
@@ -114,21 +118,8 @@ pub fn init_market_handler(
     market.open_positions = 0;
     market.bump = ctx.bumps.market;
 
-    let market_key = market.key();
-    let (vault_pda, vault_bump) =
-        Pubkey::find_program_address(&[SEED_MARKET_VAULT, market_key.as_ref()], ctx.program_id);
-    require_keys_eq!(
-        ctx.accounts.market_vault.key(),
-        vault_pda,
-        KickTickError::InvalidAccountData
-    );
-    ensure_system_vault(
-        ctx.accounts.market_vault.to_account_info(),
-        ctx.accounts.authority.to_account_info(),
-        ctx.accounts.system_program.to_account_info(),
-        &[SEED_MARKET_VAULT, market_key.as_ref(), &[vault_bump]],
-    )?;
-    market.vault_bump = vault_bump;
+    crate::instructions::token::validate_collateral(&ctx.accounts.config, &ctx.accounts.collateral_mint, ctx.accounts.token_program.key())?;
+    market.vault_bump = ctx.bumps.market_vault;
     Ok(())
 }
 
@@ -196,40 +187,5 @@ pub fn resolve_pending(market: &mut Market, winner: u8, now: i64) -> Result<()> 
     market.winner = Some(winner);
     market.resolved_at = now;
     market.status = MarketStatus::ResolvedPending;
-    Ok(())
-}
-
-pub fn ensure_system_vault<'info>(
-    vault: AccountInfo<'info>,
-    payer: AccountInfo<'info>,
-    system_program: AccountInfo<'info>,
-    seeds: &[&[u8]],
-) -> Result<()> {
-    require_keys_eq!(
-        *system_program.key,
-        solana_program::system_program::ID,
-        KickTickError::InvalidAccountData
-    );
-    if vault.lamports() == 0 {
-        let rent = Rent::get()?;
-        let ix = solana_program::system_instruction::create_account(
-            payer.key,
-            vault.key,
-            rent.minimum_balance(0),
-            0,
-            &solana_program::system_program::ID,
-        );
-        solana_program::program::invoke_signed(
-            &ix,
-            &[payer, vault.clone(), system_program],
-            &[seeds],
-        )?;
-    }
-    require_keys_eq!(
-        *vault.owner,
-        solana_program::system_program::ID,
-        KickTickError::InvalidAccountData
-    );
-    require!(vault.data_is_empty(), KickTickError::InvalidAccountData);
     Ok(())
 }

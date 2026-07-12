@@ -52,7 +52,7 @@ pub struct Market {
     pub expires_at: i64,
     pub resolved_at: i64,
     pub void_payout_bps: [u16; MAX_OUTCOMES],
-    /// Lamports deposited by complete-set minting, excluding vault rent.
+    /// USDC base units deposited by complete-set minting.
     pub collateral: u64,
     /// Number of shares settled across all fills.
     pub total_volume: u64,

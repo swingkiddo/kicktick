@@ -1,185 +1,86 @@
-use crate::constants::*;
-use crate::errors::KickTickError;
-use crate::instructions::market::ensure_system_vault;
-use crate::state::*;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
+
+use crate::{constants::*, errors::KickTickError, instructions::token::*, state::*};
 
 #[derive(Accounts)]
 pub struct InitUser<'info> {
-    #[account(mut)]
-    pub user: Signer<'info>,
-
-    #[account(
-        init_if_needed,
-        payer = user,
-        space = UserAccount::LEN,
-        seeds = [SEED_USER, user.key().as_ref()],
-        bump
-    )]
+    #[account(mut)] pub user: Signer<'info>,
+    #[account(init_if_needed, payer = user, space = UserAccount::LEN, seeds = [SEED_USER, user.key().as_ref()], bump)]
     pub user_account: Account<'info, UserAccount>,
-
-    /// CHECK: System-owned SOL vault PDA. Created and verified in the handler.
-    #[account(mut)]
-    pub user_vault: UncheckedAccount<'info>,
-
+    #[account(init_if_needed, payer = user, seeds = [SEED_USER_VAULT, user.key().as_ref()], bump,
+        token::mint = collateral_mint, token::authority = user_account, token::token_program = token_program)]
+    pub user_vault: Account<'info, TokenAccount>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump)] pub config: Account<'info, Config>,
+    #[account(address = config.collateral_mint @ KickTickError::InvalidCollateralMint)] pub collateral_mint: Account<'info, Mint>,
+    #[account(address = config.collateral_token_program @ KickTickError::InvalidCollateralTokenProgram)] pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct Deposit<'info> {
-    #[account(mut)]
     pub user: Signer<'info>,
-
-    #[account(
-        init_if_needed,
-        payer = user,
-        space = UserAccount::LEN,
-        seeds = [SEED_USER, user.key().as_ref()],
-        bump
-    )]
+    #[account(mut, seeds = [SEED_USER, user.key().as_ref()], bump = user_account.bump, constraint = user_account.owner == user.key() @ KickTickError::Unauthorized)]
     pub user_account: Account<'info, UserAccount>,
-
-    /// CHECK: System-owned SOL vault PDA. Created and verified in the handler.
-    #[account(mut)]
-    pub user_vault: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
+    #[account(mut, seeds = [SEED_USER_VAULT, user.key().as_ref()], bump = user_account.vault_bump,
+        token::mint = collateral_mint, token::authority = user_account, token::token_program = token_program)]
+    pub user_vault: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = collateral_mint, token::authority = user, token::token_program = token_program)]
+    pub user_source: Account<'info, TokenAccount>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump)] pub config: Account<'info, Config>,
+    #[account(address = config.collateral_mint @ KickTickError::InvalidCollateralMint)] pub collateral_mint: Account<'info, Mint>,
+    #[account(address = config.collateral_token_program @ KickTickError::InvalidCollateralTokenProgram)] pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
-    #[account(mut)]
     pub user: Signer<'info>,
-
-    #[account(
-        mut,
-        seeds = [SEED_USER, user.key().as_ref()],
-        bump = user_account.bump,
-        constraint = user_account.owner == user.key() @ KickTickError::Unauthorized,
-    )]
+    #[account(mut, seeds = [SEED_USER, user.key().as_ref()], bump = user_account.bump, constraint = user_account.owner == user.key() @ KickTickError::Unauthorized)]
     pub user_account: Account<'info, UserAccount>,
-
-    #[account(
-        mut,
-        seeds = [SEED_USER_VAULT, user.key().as_ref()],
-        bump = user_account.vault_bump,
-    )]
-    pub user_vault: SystemAccount<'info>,
-
-    pub system_program: Program<'info, System>,
+    #[account(mut, seeds = [SEED_USER_VAULT, user.key().as_ref()], bump = user_account.vault_bump,
+        token::mint = collateral_mint, token::authority = user_account, token::token_program = token_program)]
+    pub user_vault: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = collateral_mint, token::authority = user, token::token_program = token_program)]
+    pub user_destination: Account<'info, TokenAccount>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump)] pub config: Account<'info, Config>,
+    #[account(address = config.collateral_mint @ KickTickError::InvalidCollateralMint)] pub collateral_mint: Account<'info, Mint>,
+    #[account(address = config.collateral_token_program @ KickTickError::InvalidCollateralTokenProgram)] pub token_program: Program<'info, Token>,
 }
 
 pub fn init_user_handler(ctx: Context<InitUser>) -> Result<()> {
-    init_user_account(
-        &mut ctx.accounts.user_account,
-        ctx.accounts.user.key(),
-        ctx.bumps.user_account,
-        ctx.accounts.user_vault.to_account_info(),
-        ctx.accounts.user.to_account_info(),
-        ctx.accounts.system_program.to_account_info(),
-        ctx.program_id,
-    )
+    validate_collateral(&ctx.accounts.config, &ctx.accounts.collateral_mint, ctx.accounts.token_program.key())?;
+    let account = &mut ctx.accounts.user_account;
+    if account.owner == Pubkey::default() {
+        account.owner = ctx.accounts.user.key(); account.available_balance = 0; account.reserved_balance = 0;
+        account.vault_bump = ctx.bumps.user_vault; account.bump = ctx.bumps.user_account;
+    } else {
+        require_keys_eq!(account.owner, ctx.accounts.user.key(), KickTickError::Unauthorized);
+        require!(account.vault_bump == ctx.bumps.user_vault, KickTickError::InvalidAccountData);
+    }
+    validate_user_vault(&ctx.accounts.config, &ctx.accounts.user_vault, account.key())
 }
 
 pub fn deposit_handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     require!(amount > 0, KickTickError::ZeroAmount);
-
-    init_user_account(
-        &mut ctx.accounts.user_account,
-        ctx.accounts.user.key(),
-        ctx.bumps.user_account,
-        ctx.accounts.user_vault.to_account_info(),
-        ctx.accounts.user.to_account_info(),
-        ctx.accounts.system_program.to_account_info(),
-        ctx.program_id,
-    )?;
-
-    anchor_lang::system_program::transfer(
-        CpiContext::new(
-            ctx.accounts.system_program.key(),
-            anchor_lang::system_program::Transfer {
-                from: ctx.accounts.user.to_account_info(),
-                to: ctx.accounts.user_vault.to_account_info(),
-            },
-        ),
-        amount,
-    )?;
-
-    let user_account = &mut ctx.accounts.user_account;
-    user_account.available_balance = user_account
-        .available_balance
-        .checked_add(amount)
-        .ok_or(KickTickError::Overflow)?;
-
+    validate_collateral(&ctx.accounts.config, &ctx.accounts.collateral_mint, ctx.accounts.token_program.key())?;
+    validate_user_vault(&ctx.accounts.config, &ctx.accounts.user_vault, ctx.accounts.user_account.key())?;
+    transfer_checked(ctx.accounts.token_program.to_account_info(), ctx.accounts.user_source.to_account_info(),
+        ctx.accounts.collateral_mint.to_account_info(), ctx.accounts.user_vault.to_account_info(),
+        ctx.accounts.user.to_account_info(), amount, ctx.accounts.config.collateral_decimals, None)?;
+    ctx.accounts.user_account.available_balance = ctx.accounts.user_account.available_balance.checked_add(amount).ok_or(KickTickError::Overflow)?;
     Ok(())
 }
 
 pub fn withdraw_handler(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
     require!(amount > 0, KickTickError::ZeroAmount);
-
-    let user_account = &mut ctx.accounts.user_account;
-    require!(
-        user_account.available_balance >= amount,
-        KickTickError::InsufficientBalance
-    );
-
-    user_account.available_balance = user_account
-        .available_balance
-        .checked_sub(amount)
-        .ok_or(KickTickError::Overflow)?;
-
-    let user_key = ctx.accounts.user.key();
-    let bump = [user_account.vault_bump];
-    let signer_seeds: &[&[u8]] = &[SEED_USER_VAULT, user_key.as_ref(), &bump];
-
-    anchor_lang::system_program::transfer(
-        CpiContext::new_with_signer(
-            ctx.accounts.system_program.key(),
-            anchor_lang::system_program::Transfer {
-                from: ctx.accounts.user_vault.to_account_info(),
-                to: ctx.accounts.user.to_account_info(),
-            },
-            &[signer_seeds],
-        ),
-        amount,
-    )?;
-
-    Ok(())
-}
-
-fn init_user_account<'info>(
-    user_account: &mut Account<'info, UserAccount>,
-    user: Pubkey,
-    user_bump: u8,
-    user_vault: AccountInfo<'info>,
-    payer: AccountInfo<'info>,
-    system_program: AccountInfo<'info>,
-    program_id: &Pubkey,
-) -> Result<()> {
-    let (vault_pda, vault_bump) =
-        Pubkey::find_program_address(&[SEED_USER_VAULT, user.as_ref()], program_id);
-    require!(
-        user_vault.key() == vault_pda,
-        KickTickError::InvalidAccountData
-    );
-
-    let bump = [vault_bump];
-    let vault_seeds: &[&[u8]] = &[SEED_USER_VAULT, user.as_ref(), &bump];
-    ensure_system_vault(user_vault, payer, system_program, vault_seeds)?;
-
-    if user_account.owner == Pubkey::default() {
-        user_account.owner = user;
-        user_account.available_balance = 0;
-        user_account.reserved_balance = 0;
-        user_account.vault_bump = vault_bump;
-        user_account.bump = user_bump;
-    } else {
-        require!(user_account.owner == user, KickTickError::Unauthorized);
-        require!(
-            user_account.vault_bump == vault_bump,
-            KickTickError::InvalidAccountData
-        );
-    }
-
+    require!(ctx.accounts.user_account.available_balance >= amount, KickTickError::InsufficientBalance);
+    validate_collateral(&ctx.accounts.config, &ctx.accounts.collateral_mint, ctx.accounts.token_program.key())?;
+    validate_user_custody(&ctx.accounts.user_account, &ctx.accounts.user_vault)?;
+    let owner = ctx.accounts.user.key(); let bump = [ctx.accounts.user_account.bump];
+    let seeds: &[&[u8]] = &[SEED_USER, owner.as_ref(), &bump];
+    transfer_checked(ctx.accounts.token_program.to_account_info(), ctx.accounts.user_vault.to_account_info(),
+        ctx.accounts.collateral_mint.to_account_info(), ctx.accounts.user_destination.to_account_info(),
+        ctx.accounts.user_account.to_account_info(), amount, ctx.accounts.config.collateral_decimals, Some(&[seeds]))?;
+    ctx.accounts.user_account.available_balance = ctx.accounts.user_account.available_balance.checked_sub(amount).ok_or(KickTickError::Overflow)?;
     Ok(())
 }
