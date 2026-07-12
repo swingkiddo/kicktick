@@ -104,6 +104,10 @@ export class WsServer extends EventEmitter {
           }
 
           case "subscribe_all": {
+            for (const fixtureId of this.subscriptions.keys()) {
+              this.subscriptions.get(fixtureId)!.add(ws);
+              state.subscribedFixtures.add(fixtureId);
+            }
             this.emit("subscribe_all", ws);
             break;
           }
