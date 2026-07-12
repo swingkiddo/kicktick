@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount};
 
 use crate::constants::*;
 use crate::errors::KickTickError;
@@ -9,16 +10,20 @@ pub struct Claim<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
     #[account(mut, seeds = [SEED_USER, user.key().as_ref()], bump = user_account.bump, constraint = user_account.owner == user.key() @ KickTickError::Unauthorized)]
-    pub user_account: Account<'info, UserAccount>,
-    #[account(mut, seeds = [SEED_USER_VAULT, user.key().as_ref()], bump = user_account.vault_bump)]
-    pub user_vault: SystemAccount<'info>,
+    pub user_account: Box<Account<'info, UserAccount>>,
+    #[account(mut, seeds = [SEED_USER_VAULT, user.key().as_ref()], bump = user_account.vault_bump,
+        token::mint = collateral_mint, token::authority = user_account, token::token_program = token_program)]
+    pub user_vault: Box<Account<'info, TokenAccount>>,
     #[account(mut, seeds = [SEED_MARKET, &market.fixture_id.to_le_bytes(), &[market.market_type as u8], &market.market_seq.to_le_bytes()], bump = market.bump)]
-    pub market: Account<'info, Market>,
-    #[account(mut, seeds = [SEED_MARKET_VAULT, market.key().as_ref()], bump = market.vault_bump)]
-    pub market_vault: SystemAccount<'info>,
+    pub market: Box<Account<'info, Market>>,
+    #[account(mut, seeds = [SEED_MARKET_VAULT, market.key().as_ref()], bump = market.vault_bump,
+        token::mint = collateral_mint, token::authority = market, token::token_program = token_program)]
+    pub market_vault: Box<Account<'info, TokenAccount>>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump)] pub config: Box<Account<'info, Config>>,
+    #[account(address = config.collateral_mint @ KickTickError::InvalidCollateralMint)] pub collateral_mint: Box<Account<'info, Mint>>,
+    #[account(address = config.collateral_token_program @ KickTickError::InvalidCollateralTokenProgram)] pub token_program: Program<'info, Token>,
     #[account(mut, seeds = [SEED_POSITION, market.key().as_ref(), user.key().as_ref()], bump = position.bump, constraint = position.owner == user.key() @ KickTickError::Unauthorized, constraint = position.market == market.key() @ KickTickError::InvalidAccountData, close = user)]
-    pub position: Account<'info, Position>,
-    pub system_program: Program<'info, System>,
+    pub position: Box<Account<'info, Position>>,
 }
 
 #[derive(Accounts)]
@@ -42,14 +47,17 @@ pub struct CloseMarketVault<'info> {
     pub config: Account<'info, Config>,
     #[account(seeds = [SEED_MARKET, &market.fixture_id.to_le_bytes(), &[market.market_type as u8], &market.market_seq.to_le_bytes()], bump = market.bump)]
     pub market: Account<'info, Market>,
-    #[account(mut, seeds = [SEED_MARKET_VAULT, market.key().as_ref()], bump = market.vault_bump)]
-    pub market_vault: SystemAccount<'info>,
+    #[account(mut, seeds = [SEED_MARKET_VAULT, market.key().as_ref()], bump = market.vault_bump,
+        token::mint = collateral_mint, token::authority = market, token::token_program = token_program)]
+    pub market_vault: Account<'info, TokenAccount>,
+    #[account(address = config.collateral_mint @ KickTickError::InvalidCollateralMint)] pub collateral_mint: Account<'info, Mint>,
+    #[account(address = config.collateral_token_program @ KickTickError::InvalidCollateralTokenProgram)] pub token_program: Program<'info, Token>,
     #[account(mut)]
     pub recipient: SystemAccount<'info>,
-    pub system_program: Program<'info, System>,
 }
 
 pub fn claim_handler(ctx: Context<Claim>) -> Result<()> {
+    let market_authority = ctx.accounts.market.to_account_info();
     let market = &mut ctx.accounts.market;
     require!(
         matches!(market.status, MarketStatus::Resolved | MarketStatus::Voided),
@@ -81,15 +89,17 @@ pub fn claim_handler(ctx: Context<Claim>) -> Result<()> {
     if payout > 0 {
         transfer_market_balance(
             market,
-            market.key(),
+            market_authority,
             ctx.accounts.market_vault.to_account_info(),
             ctx.accounts.user_vault.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.collateral_mint.to_account_info(),
+            ctx.accounts.config.collateral_decimals,
             payout,
         )?;
-        ctx.accounts.user_account.available_balance = ctx
-            .accounts
-            .user_account
+            ctx.accounts.user_account.available_balance = ctx
+                .accounts
+                .user_account
             .available_balance
             .checked_add(payout)
             .ok_or(KickTickError::Overflow)?;
@@ -132,18 +142,16 @@ pub fn close_market_vault_handler(ctx: Context<CloseMarketVault>) -> Result<()> 
         ctx.accounts.market.open_positions == 0,
         KickTickError::MarketNotTerminal
     );
-    let amount = ctx.accounts.market_vault.lamports();
-    if amount > 0 {
-        transfer_market_balance(
-            &ctx.accounts.market,
-            ctx.accounts.market.key(),
-            ctx.accounts.market_vault.to_account_info(),
-            ctx.accounts.recipient.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-            amount,
-        )?;
-    }
-    Ok(())
+    require!(ctx.accounts.market_vault.amount == 0, KickTickError::NonZeroVaultBalance);
+    let fixture = ctx.accounts.market.fixture_id.to_le_bytes();
+    let market_type = [ctx.accounts.market.market_type as u8];
+    let seq = ctx.accounts.market.market_seq.to_le_bytes();
+    let bump = [ctx.accounts.market.bump];
+    let seeds: &[&[u8]] = &[SEED_MARKET, &fixture, &market_type, &seq, &bump];
+    token::close_account(CpiContext::new_with_signer(ctx.accounts.token_program.key(), CloseAccount {
+        account: ctx.accounts.market_vault.to_account_info(), destination: ctx.accounts.recipient.to_account_info(),
+        authority: ctx.accounts.market.to_account_info(),
+    }, &[seeds]))
 }
 
 fn payout_for(shares: u64, bps: u16) -> Result<u64> {
@@ -156,23 +164,17 @@ fn payout_for(shares: u64, bps: u16) -> Result<u64> {
 }
 fn transfer_market_balance<'info>(
     market: &Market,
-    market_key: Pubkey,
+    authority: AccountInfo<'info>,
     source: AccountInfo<'info>,
     destination: AccountInfo<'info>,
-    system_program: AccountInfo<'info>,
+    token_program: AccountInfo<'info>,
+    mint: AccountInfo<'info>,
+    decimals: u8,
     amount: u64,
 ) -> Result<()> {
-    let bump = [market.vault_bump];
-    let seeds: &[&[u8]] = &[SEED_MARKET_VAULT, market_key.as_ref(), &bump];
-    anchor_lang::system_program::transfer(
-        CpiContext::new_with_signer(
-            system_program.key(),
-            anchor_lang::system_program::Transfer {
-                from: source,
-                to: destination,
-            },
-            &[seeds],
-        ),
-        amount,
-    )
+    let fixture = market.fixture_id.to_le_bytes(); let market_type = [market.market_type as u8];
+    let seq = market.market_seq.to_le_bytes(); let bump = [market.bump];
+    let seeds: &[&[u8]] = &[SEED_MARKET, &fixture, &market_type, &seq, &bump];
+    crate::instructions::token::transfer_checked(token_program, source, mint, destination,
+        authority, amount, decimals, Some(&[seeds]))
 }
