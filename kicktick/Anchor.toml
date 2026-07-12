@@ -5,10 +5,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-kicktick = "7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4"
+kicktick = "LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND"
 
 [programs.devnet]
-kicktick = "7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4"
+kicktick = "LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND"
 
 [provider]
 cluster = "devnet"

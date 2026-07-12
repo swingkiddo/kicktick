@@ -15,6 +15,8 @@ import * as path from 'path';
 
 import { Kicktick } from '../target/types/kicktick';
 
+const DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const SEED_CONFIG = Buffer.from('config');
 
 function parseArgs(): string {
@@ -24,7 +26,7 @@ function parseArgs(): string {
 }
 
 function loadDeployer(): Keypair {
-  const walletPath = path.resolve(__dirname, '../..', 'keypair.json');
+  const walletPath = path.resolve(__dirname, '..', 'keypair.json');
   const data = JSON.parse(fs.readFileSync(walletPath, 'utf-8'));
   return Keypair.fromSecretKey(Uint8Array.from(data));
 }
@@ -75,6 +77,8 @@ async function main() {
   ).accountsStrict({
     admin: deployer.publicKey,
     config: configPda,
+    collateralMint: DEVNET_USDC_MINT,
+    tokenProgram: TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
   }).signers([deployer]).rpc();
 
