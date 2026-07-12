@@ -67,7 +67,7 @@ fn release(order: &OrderAccount, user: &mut UserAccount, position: &mut Position
     let remaining = order.remaining_quantity;
     match order.side {
         OrderSide::Buy => {
-            let amount = crate::instructions::token::price_cost(remaining, order.price_bps)?;
+            let amount = order.reserved_collateral;
             user.reserved_balance = user.reserved_balance.checked_sub(amount).ok_or(KickTickError::Overflow)?;
             user.available_balance = user.available_balance.checked_add(amount).ok_or(KickTickError::Overflow)?;
         }
@@ -83,6 +83,7 @@ pub fn create_order_handler(ctx: Context<CreateOrder>, side: OrderSide, outcome_
     require!(ctx.accounts.market.status == MarketStatus::Open, KickTickError::MarketNotOpen);
     let now = Clock::get()?.unix_timestamp;
     require!(now < expires_at && expires_at <= ctx.accounts.market.expires_at, KickTickError::DeadlinePassed);
+    require!(ctx.accounts.market.outcome_count == 2, KickTickError::BinaryMarketOnly);
     require!(outcome_index < ctx.accounts.market.outcome_count, KickTickError::InvalidOutcomeIndex);
     require!((MIN_PRICE_BPS..=MAX_PRICE_BPS).contains(&price_bps) && price_bps % PRICE_TICK_BPS == 0, KickTickError::InvalidPrice);
     require!(quantity >= MIN_TRADE_QUANTITY, KickTickError::QuantityTooSmall);
@@ -92,10 +93,11 @@ pub fn create_order_handler(ctx: Context<CreateOrder>, side: OrderSide, outcome_
     }
     require!(ctx.accounts.position.owner == ctx.accounts.owner.key() && ctx.accounts.position.market == ctx.accounts.market.key(), KickTickError::InvalidAccountData);
     let order = &mut ctx.accounts.order;
-    order.set_inner(OrderAccount { owner: ctx.accounts.owner.key(), market: ctx.accounts.market.key(), side, outcome_index, price_bps, quantity, remaining_quantity: quantity, nonce, expires_at, status: OrderStatus::Open, bump: ctx.bumps.order });
+    let reserved_collateral = if side == OrderSide::Buy { crate::instructions::token::price_cost_ceil(quantity, price_bps)? } else { 0 };
+    order.set_inner(OrderAccount { owner: ctx.accounts.owner.key(), market: ctx.accounts.market.key(), side, outcome_index, price_bps, quantity, remaining_quantity: quantity, reserved_collateral, nonce, expires_at, status: OrderStatus::Open, bump: ctx.bumps.order });
     match side {
         OrderSide::Buy => {
-            let amount = crate::instructions::token::price_cost(quantity, price_bps)?;
+            let amount = reserved_collateral;
             require!(ctx.accounts.user_account.available_balance >= amount, KickTickError::InsufficientBalance);
             ctx.accounts.user_account.available_balance -= amount;
             ctx.accounts.user_account.reserved_balance = ctx.accounts.user_account.reserved_balance.checked_add(amount).ok_or(KickTickError::Overflow)?;

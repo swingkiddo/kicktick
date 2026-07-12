@@ -15,6 +15,7 @@ pub struct OrderAccount {
     pub price_bps: u16,
     pub quantity: u64,
     pub remaining_quantity: u64,
+    pub reserved_collateral: u64,
     pub nonce: u64,
     pub expires_at: i64,
     pub status: OrderStatus,
@@ -22,5 +23,5 @@ pub struct OrderAccount {
 }
 
 impl OrderAccount {
-    pub const LEN: usize = 8 + 32 + 32 + 1 + 1 + 2 + 8 + 8 + 8 + 8 + 1 + 1;
+    pub const LEN: usize = 8 + 32 + 32 + 1 + 1 + 2 + 8 + 8 + 8 + 8 + 8 + 1 + 1;
 }

@@ -62,13 +62,21 @@ pub fn settle_complete_set_handler<'info>(
 ) -> Result<()> {
     check_fill(&ctx.accounts.market, fill_seq, quantity)?;
     let outcome_count = ctx.accounts.market.outcome_count as usize;
-    require!(matches!(outcome_count, 2 | 3), KickTickError::InvalidOutcomeCount);
+    require!(outcome_count == 2, KickTickError::BinaryMarketOnly);
     require!(prices_bps.len() == outcome_count, KickTickError::InvalidOutcomeCount);
     require!(ctx.remaining_accounts.len() == outcome_count * 4, KickTickError::InvalidAccountData);
     check_complete_prices(&prices_bps)?;
 
     let market_key = ctx.accounts.market.key();
     let mut owners = [Pubkey::default(); MAX_OUTCOMES];
+    let mut costs = [0u64; 2];
+    let mut capacities = [0u64; 2];
+    for outcome in 0..outcome_count {
+        let order = Account::<OrderAccount>::try_from(&ctx.remaining_accounts[outcome * 4 + 2])?;
+        costs[outcome] = order_fill_cost(&order, quantity, prices_bps[outcome])?;
+        capacities[outcome] = order.reserved_collateral;
+    }
+    normalize_complete_set_costs(&mut costs, &capacities, quantity)?;
     let mut total_cost = 0u64;
     for outcome in 0..outcome_count {
         let accounts = &ctx.remaining_accounts[outcome * 4..outcome * 4 + 4];
@@ -85,11 +93,12 @@ pub fn settle_complete_set_handler<'info>(
             prices_bps[outcome],
             quantity,
             &owners[..outcome],
+            costs[outcome],
         )?;
         owners[outcome] = owner;
         total_cost = total_cost.checked_add(cost).ok_or(KickTickError::Overflow)?;
     }
-    require!(total_cost == quantity, KickTickError::RoundingDust);
+    require!(total_cost == quantity, KickTickError::Overflow);
     record_complete_fill(&mut ctx.accounts.market, quantity)
 }
 
@@ -105,6 +114,7 @@ pub fn settle_share_trade_handler(
         KickTickError::InvalidAccountData
     );
     check_fill(&ctx.accounts.market, fill_seq, quantity)?;
+    require!(ctx.accounts.market.outcome_count == 2, KickTickError::BinaryMarketOnly);
     check_price(price)?;
     require!(
         outcome < ctx.accounts.market.outcome_count,
@@ -121,11 +131,6 @@ pub fn settle_share_trade_handler(
         market_key,
     )?;
     let cost = order_fill_cost(&ctx.accounts.buyer_order, quantity, price)?;
-    let reserved_cost = order_fill_cost(
-        &ctx.accounts.buyer_order,
-        quantity,
-        ctx.accounts.buyer_order.price_bps,
-    )?;
     transfer_reserved_collateral(
         &mut ctx.accounts.buyer_account,
         ctx.accounts.buyer_vault.to_account_info(),
@@ -133,13 +138,12 @@ pub fn settle_share_trade_handler(
         ctx.accounts.token_program.to_account_info(),
         ctx.accounts.collateral_mint.to_account_info(),
         ctx.accounts.buyer.key(),
-        reserved_cost,
         cost,
         ctx.accounts.config.collateral_decimals,
     )?;
-    ctx.accounts.buyer_order.remaining_quantity = ctx.accounts.buyer_order.remaining_quantity.checked_sub(quantity).ok_or(KickTickError::Overflow)?;
+    ctx.accounts.buyer_order.reserved_collateral = ctx.accounts.buyer_order.reserved_collateral.checked_sub(cost).ok_or(KickTickError::Overflow)?;
+    consume_buy_order(&mut ctx.accounts.buyer_order, &mut ctx.accounts.buyer_account, quantity)?;
     ctx.accounts.seller_order.remaining_quantity = ctx.accounts.seller_order.remaining_quantity.checked_sub(quantity).ok_or(KickTickError::Overflow)?;
-    update_order_status(&mut ctx.accounts.buyer_order);
     update_order_status(&mut ctx.accounts.seller_order);
     ctx.accounts.seller_account.available_balance = ctx
         .accounts
@@ -236,6 +240,7 @@ fn settle_remaining_participant<'info>(
     price: u16,
     quantity: u64,
     previous_owners: &[Pubkey],
+    exact_cost: u64,
 ) -> Result<(Pubkey, u64)> {
     let user_info = &accounts[0];
     let vault_info = &accounts[1];
@@ -266,8 +271,8 @@ fn settle_remaining_participant<'info>(
     assert_pda(position_info.key, &[SEED_POSITION, market_key.as_ref(), owner.as_ref(), &[position.bump]], program_id)?;
     validate_position(&position, owner, market_key)?;
 
-    let cost = order_fill_cost(&order, quantity, price)?;
-    let reserved_cost = order_fill_cost(&order, quantity, order.price_bps)?;
+    let cost = exact_cost;
+    require!(cost <= order.reserved_collateral, KickTickError::InsufficientBalance);
     transfer_reserved_collateral(
         &mut user,
         vault_info.clone(),
@@ -275,14 +280,14 @@ fn settle_remaining_participant<'info>(
         token_program.clone(),
         collateral_mint.clone(),
         owner,
-        reserved_cost,
         cost,
         decimals,
     )?;
+    order.reserved_collateral = order.reserved_collateral.checked_sub(cost).ok_or(KickTickError::Overflow)?;
     position.shares[outcome as usize] = position.shares[outcome as usize]
         .checked_add(quantity)
         .ok_or(KickTickError::Overflow)?;
-    consume_order(&mut order, quantity)?;
+    consume_buy_order(&mut order, &mut user, quantity)?;
 
     user.exit(program_id)?;
     order.exit(program_id)?;
@@ -316,24 +321,16 @@ fn transfer_reserved_collateral<'info>(
     token_program: AccountInfo<'info>,
     mint: AccountInfo<'info>,
     owner: Pubkey,
-    reserved_amount: u64,
     transfer_amount: u64,
     decimals: u8,
 ) -> Result<()> {
     require!(
-        ua.reserved_balance >= reserved_amount,
+        ua.reserved_balance >= transfer_amount,
         KickTickError::InsufficientBalance
     );
     ua.reserved_balance = ua
         .reserved_balance
-        .checked_sub(reserved_amount)
-        .ok_or(KickTickError::Overflow)?;
-    let price_improvement = reserved_amount
         .checked_sub(transfer_amount)
-        .ok_or(KickTickError::InvalidOrder)?;
-    ua.available_balance = ua
-        .available_balance
-        .checked_add(price_improvement)
         .ok_or(KickTickError::Overflow)?;
     let bump = [ua.bump];
     let seeds: &[&[u8]] = &[SEED_USER, owner.as_ref(), &bump];
@@ -349,8 +346,14 @@ fn validate_order(order: &OrderAccount, owner: Pubkey, market: Pubkey, side: Ord
     require!(order.remaining_quantity >= quantity, KickTickError::InsufficientShares);
     Ok(())
 }
-fn consume_order(order: &mut OrderAccount, quantity: u64) -> Result<()> {
+fn consume_buy_order(order: &mut OrderAccount, user: &mut UserAccount, quantity: u64) -> Result<()> {
     order.remaining_quantity = order.remaining_quantity.checked_sub(quantity).ok_or(KickTickError::Overflow)?;
+    if order.remaining_quantity == 0 && order.reserved_collateral > 0 {
+        let refund = order.reserved_collateral;
+        user.reserved_balance = user.reserved_balance.checked_sub(refund).ok_or(KickTickError::Overflow)?;
+        user.available_balance = user.available_balance.checked_add(refund).ok_or(KickTickError::Overflow)?;
+        order.reserved_collateral = 0;
+    }
     update_order_status(order);
     Ok(())
 }
@@ -360,7 +363,46 @@ fn order_fill_cost(order: &OrderAccount, quantity: u64, price: u16) -> Result<u6
         .checked_sub(price_cost(remaining, price)?)
         .ok_or(KickTickError::Overflow.into())
 }
+fn normalize_complete_set_costs(costs: &mut [u64; 2], capacities: &[u64; 2], quantity: u64) -> Result<()> {
+    let total = costs[0].checked_add(costs[1]).ok_or(KickTickError::Overflow)?;
+    if total < quantity {
+        let remainder = quantity.checked_sub(total).ok_or(KickTickError::Overflow)?;
+        let index = (0..2)
+            .find(|index| capacities[*index].saturating_sub(costs[*index]) >= remainder)
+            .ok_or(KickTickError::InsufficientBalance)?;
+        costs[index] = costs[index].checked_add(remainder).ok_or(KickTickError::Overflow)?;
+    } else if total > quantity {
+        let mut excess = total.checked_sub(quantity).ok_or(KickTickError::Overflow)?;
+        for index in (0..2).rev() {
+            let reduction = costs[index].min(excess);
+            costs[index] -= reduction;
+            excess -= reduction;
+        }
+        require!(excess == 0, KickTickError::Overflow);
+    }
+    require!(costs[0] <= capacities[0] && costs[1] <= capacities[1], KickTickError::InsufficientBalance);
+    Ok(())
+}
 fn update_order_status(order: &mut OrderAccount) {
     order.status = if order.remaining_quantity == 0 { OrderStatus::Filled } else { OrderStatus::Partial };
 }
 use crate::instructions::token::price_cost;
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_complete_set_costs;
+
+    #[test]
+    fn assigns_remainder_to_available_reserve() {
+        let mut costs = [39, 61];
+        normalize_complete_set_costs(&mut costs, &[40, 62], 101).unwrap();
+        assert_eq!(costs, [40, 61]);
+    }
+
+    #[test]
+    fn removes_excess_deterministically() {
+        let mut costs = [40, 62];
+        normalize_complete_set_costs(&mut costs, &[40, 62], 101).unwrap();
+        assert_eq!(costs, [40, 61]);
+    }
+}

@@ -39,3 +39,34 @@ pub fn price_cost(quantity: u64, price_bps: u16) -> Result<u64> {
         .checked_div(crate::constants::PRICE_SCALE_BPS as u128).ok_or(KickTickError::DivisionByZero)?;
     u64::try_from(value).map_err(|_| KickTickError::Overflow.into())
 }
+
+/// Maximum collateral required by a BUY order. Unlike execution cost, reserve
+/// rounds up so a deterministic complete-set remainder can never exceed it.
+pub fn price_cost_ceil(quantity: u64, price_bps: u16) -> Result<u64> {
+    let numerator = (quantity as u128)
+        .checked_mul(price_bps as u128)
+        .ok_or(KickTickError::Overflow)?;
+    let scale = crate::constants::PRICE_SCALE_BPS as u128;
+    let value = numerator
+        .checked_add(scale.checked_sub(1).ok_or(KickTickError::Overflow)?)
+        .ok_or(KickTickError::Overflow)?
+        .checked_div(scale)
+        .ok_or(KickTickError::DivisionByZero)?;
+    u64::try_from(value).map_err(|_| KickTickError::Overflow.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buy_reserve_covers_complete_set_remainder() {
+        assert_eq!(price_cost(101, 3_900).unwrap(), 39);
+        assert_eq!(price_cost_ceil(101, 6_100).unwrap(), 62);
+    }
+
+    #[test]
+    fn exact_prices_have_no_extra_reserve() {
+        assert_eq!(price_cost_ceil(100_000, 3_900).unwrap(), 39_000);
+    }
+}

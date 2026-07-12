@@ -97,6 +97,7 @@ pub fn claim_handler(ctx: Context<Claim>) -> Result<()> {
             ctx.accounts.config.collateral_decimals,
             payout,
         )?;
+        market.collateral = market.collateral.checked_sub(payout).ok_or(KickTickError::InsufficientLiquidity)?;
             ctx.accounts.user_account.available_balance = ctx
                 .accounts
                 .user_account
