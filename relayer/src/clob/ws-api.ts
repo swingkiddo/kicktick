@@ -20,7 +20,21 @@ export interface ClobWsApiOptions {
 
 const CHALLENGE_DOMAIN = "kicktick-clob-auth";
 const nowSeconds = () => Math.floor(Date.now() / 1000);
-const send = (ws: WebSocket, type: string, data: unknown) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type, data }));
+const send = (ws: WebSocket, type: string, data: unknown) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(
+  { type, data },
+  (_key, value) => typeof value === "bigint" ? value.toString() : value,
+));
+const orderView = (order: StoredOrder) => ({
+  ...order,
+  original_quantity: order.original_quantity.toString(),
+  filled_quantity: (order.original_quantity - order.remaining_quantity).toString(),
+  remaining_quantity: order.remaining_quantity.toString(),
+  pending_quantity: order.pending_quantity.toString(),
+  reserved_cost: order.side === "BUY"
+    ? ((order.remaining_quantity * BigInt(order.price_bps)) / 10_000n).toString()
+    : "0",
+  settlement_status: order.pending_quantity > 0n ? "PENDING" : "CONFIRMED",
+});
 
 function canonicalChallenge(owner: string, challenge: string): Uint8Array {
   return Buffer.from(`${CHALLENGE_DOMAIN}\nowner=${owner}\nchallenge=${challenge}\n`, "utf8");
@@ -39,7 +53,7 @@ export class ClobWsApi {
     const ix = tx.transaction.message.instructions.find((candidate: any) => candidate.programId?.equals(program) && bs58.decode(candidate.data).subarray(0, 8).equals(this.discriminator("create_order")));
     if (!ix) throw new ProtocolError("transaction did not call create_order");
     const accounts = (ix as any).accounts as PublicKey[];
-    if (!accounts?.[0]?.equals(new PublicKey(payload.owner)) || !accounts?.[3]?.equals(new PublicKey(payload.market)) || !accounts?.[4]?.equals(new PublicKey(payload.order_pda))) throw new ProtocolError("create_order accounts do not match payload");
+    if (!accounts?.[0]?.equals(new PublicKey(payload.owner)) || !accounts?.[2]?.equals(new PublicKey(payload.market)) || !accounts?.[3]?.equals(new PublicKey(payload.order_pda))) throw new ProtocolError("create_order accounts do not match payload");
     const info = await this.options.connection.getAccountInfo(new PublicKey(payload.order_pda), "confirmed");
     if (!info || info.data.length < 110) throw new ProtocolError("order PDA is missing");
     const d = info.data;
@@ -86,7 +100,7 @@ export class ClobWsApi {
       case "subscribe_orderbook": session.bookSubscriptions.add(message.data.market); send(ws, "orderbook", this.orderbook(message.data.market)); return;
       case "submit_order": void this.submitOrder(ws, session, message.data); return;
       case "cancel_order": void this.cancelOrder(ws, session, message.data); return;
-      case "cancel_all": return this.cancelAll(ws, session, message.data?.market);
+      case "cancel_all": send(ws, "error", { code: "CANCEL_ALL_UNSUPPORTED", message: "cancel_all requires one confirmed on-chain cancellation per order" }); return;
       default: return;
     }
   }
@@ -115,7 +129,7 @@ export class ClobWsApi {
       }
       session.challenge = undefined;
       send(ws, "authenticated", { owner });
-      send(ws, "private_orders", this.store.listOwnerOrders(owner));
+      send(ws, "private_orders", this.store.listOwnerOrders(owner).map(orderView));
     } catch (error) { send(ws, "error", { code: "AUTH_FAILED", message: error instanceof Error ? error.message : String(error) }); }
   }
 
@@ -153,15 +167,6 @@ export class ClobWsApi {
       send(ws, "order_cancelled", { order_id: cancellation.payload.order_id });
       const order = this.store.getOrder(cancellation.payload.order_id);
       if (order) this.publishMarket(order.market);
-    } catch (error) { send(ws, "error", { code: "CANCEL_REJECTED", message: error instanceof Error ? error.message : String(error) }); }
-  }
-
-  private cancelAll(ws: WebSocket, session: Session, market?: string): void {
-    try {
-      this.requireAuth(session);
-      const ids = this.engine.cancelAll(session.owner!, market);
-      send(ws, "cancel_all_ack", { order_ids: ids });
-      if (market) this.publishMarket(market); else for (const id of ids) { const order = this.store.getOrder(id); if (order) this.publishMarket(order.market); }
     } catch (error) { send(ws, "error", { code: "CANCEL_REJECTED", message: error instanceof Error ? error.message : String(error) }); }
   }
 
