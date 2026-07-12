@@ -22,6 +22,17 @@ export class FillSettlementQueue extends EventEmitter {
   }
 
   private async settle(fill: Fill): Promise<void> {
+    const market = this.store.getMarket(fill.market);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (!market || market.state !== "OPEN" || nowSeconds >= market.expires_at) {
+      const reason = !market
+        ? `fill ${fill.id} cancelled: market is missing`
+        : `fill ${fill.id} cancelled: market is ${market.state}${nowSeconds >= market.expires_at ? " and expired" : ""}`;
+      this.store.cancelFill(fill.id, reason);
+      this.emit("failed", this.store.getFill(fill.id), new Error(reason));
+      return;
+    }
+
     try {
       const signature = fill.kind === "COMPLETE_SET"
         ? await this.anchor.settleCompleteSetFill(fill, [...fill.maker_order_ids, ...fill.taker_order_ids]
@@ -38,9 +49,11 @@ export class FillSettlementQueue extends EventEmitter {
       this.emit("confirmed", this.store.getFill(fill.id));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // A timeout/transport error does not prove the transaction failed. Keep the
-      // reservation until reconciliation observes the market fill sequence.
-      if (/timeout|timed out|blockhash|confirm|transport|network|unknown/i.test(message)) {
+      if (/MarketNotOpen|DeadlinePassed|Market is not open|Deadline passed/i.test(message)) {
+        this.store.cancelFill(fill.id, message);
+      } else if (/timeout|timed out|blockhash|confirm|transport|network|unknown/i.test(message)) {
+        // A timeout/transport error does not prove the transaction failed. Keep the
+        // reservation until reconciliation observes the market fill sequence.
         this.store.markFillUnknown(fill.id, message);
       } else {
         this.store.releaseFill(fill.id, message);

@@ -20,7 +20,18 @@ export class ClobRecovery {
       if (next > fill.market_sequence) {
         this.store.confirmFill(fill.id);
         confirmed_fills.push(fill.id);
-      } else if (fill.status === "MATCHED" || next === fill.market_sequence) {
+        continue;
+      }
+      const market = this.store.getMarket(fill.market);
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (!market || market.state !== "OPEN" || nowSeconds >= market.expires_at) {
+        const reason = !market
+          ? `fill ${fill.id} cancelled during recovery: market is missing`
+          : `fill ${fill.id} cancelled during recovery: market is ${market.state}${nowSeconds >= market.expires_at ? " and expired" : ""}`;
+        this.store.cancelFill(fill.id, reason);
+        continue;
+      }
+      if (fill.status === "MATCHED" || next === fill.market_sequence) {
         retry_fills.push(fill.id);
       }
     }

@@ -111,6 +111,8 @@ async function main(): Promise<void> {
     connection: rpcConnection,
     onFills: async market => {
       for (const fill of clobStore.listPendingFills().filter(candidate => candidate.market === market && candidate.status === "MATCHED")) {
+        // The queue performs the final lifecycle check and cancels stale fills
+        // without touching Solana, releasing their order reservations.
         await fillSettlement.submit(fill);
       }
     },

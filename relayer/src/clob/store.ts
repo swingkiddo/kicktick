@@ -332,6 +332,25 @@ export class ClobStore {
   markFillUnknown(id: string, error: string): void { this.updateFill(id, "UNKNOWN", undefined, error); }
   markFillFailed(id: string, error: string): void { this.updateFill(id, "FAILED_RETRYABLE", undefined, error); }
 
+  /** Releases a fill that can never be accepted because its market is closed. */
+  cancelFill(id: string, error: string): void {
+    this.db.transaction(() => {
+      const fill = this.getFill(id);
+      if (!fill || fill.status === "CONFIRMED" || fill.status === "FAILED_FINAL") return;
+      for (const orderId of new Set([...fill.maker_order_ids, ...fill.taker_order_ids])) {
+        const order = this.getOrder(orderId);
+        if (order) {
+          this.db.prepare("UPDATE orders SET pending_quantity=?, updated_at=? WHERE id=?").run(
+            String(order.pending_quantity >= fill.quantity ? order.pending_quantity - fill.quantity : 0n),
+            Date.now(),
+            orderId,
+          );
+        }
+      }
+      this.updateFill(id, "FAILED_FINAL", undefined, error);
+    })();
+  }
+
   confirmFill(id: string): void {
     this.db.transaction(() => {
       const fill = this.getFill(id);
