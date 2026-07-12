@@ -32,12 +32,18 @@ FillSettlementQueue.submit(fill)
   ├── serialize per market
   ├── anchor-client.settleClobFill(fill)
   │     └── direct fills settle buyer/seller positions
-  ├── anchor-client.settleCompleteSetFill(fill, owners)
-  │     └── complete-set fills settle 2-way or 3-way outcomes
+  ├── anchor-client.settleCompleteSetFill(fill, orders sorted by outcome)
+  │     └── complete-set fills settle exactly two binary outcomes
   └── confirmFill / markFillSubmitted
 ```
 
 When a relayer restarts, it reloads `MATCHED` and `SUBMITTED` fills from SQLite, compares them to on-chain `fillSequence`, and either confirms the fill or retries the queue.
+
+Complete-set orders are expanded from SQLite into full `StoredOrder` records,
+sorted by `outcome_index`, and submitted as YES then NO. Ternary CLOB orders are
+rejected before matching. BUY reserve views use the same ceil calculation as
+the program, and the manual Order PDA decoder expects the current 118-byte
+layout with `nonce` at byte offset 100.
 
 ### Fill state machine
 

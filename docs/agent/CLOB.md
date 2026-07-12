@@ -9,7 +9,15 @@ status: active
 
 # KickTick Hybrid CLOB
 
-KickTick uses native SOL collateral and a hybrid CLOB. Wallets deposit SOL into program-owned PDA vaults, sign GTC limit orders locally, and send them to the relayer over WebSocket. The relayer verifies signatures, stores authoritative open-order reservations in SQLite, matches price-time priority in memory, then submits each fill to Solana in market sequence order.
+KickTick uses configured SPL USDC collateral and a hybrid CLOB. Wallets deposit
+USDC into program-controlled token vaults, sign GTC limit orders locally, and
+send them to the relayer over WebSocket. The relayer verifies signatures,
+stores authoritative open-order reservations in SQLite, matches price-time
+priority in memory, then submits each fill to Solana in market sequence order.
+
+The current trading path is binary-only. BUY orders reserve collateral with
+ceil arithmetic; SELL orders lock shares. Complementary BUY orders can create
+YES/NO complete sets, while ternary CLOB settlement is unsupported.
 
 The configured relayer is trusted to validate signatures and submit fills. On-chain code remains authoritative for user balances, positions, market collateral, and `fillSequence`; a relayer never gets authority to withdraw a user's vault.
 

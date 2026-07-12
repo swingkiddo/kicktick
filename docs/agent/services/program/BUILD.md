@@ -154,7 +154,7 @@ PenaltyShot, VARCheck
 To add:
 1. Add a variant to `MarketType` in `state/market.rs`.
 2. Update `Market::outcome_count_for` and `requires_oracle`.
-3. Add the stat/predicate mapping in `instructions/settle_round.rs` if it is
+3. Add the stat/predicate mapping in `instructions/oracle.rs` if it is
    oracle-backed.
 4. Update the relayer market definitions/triggers.
 5. Add coverage to `tests/market.ts` and settlement coverage if needed.

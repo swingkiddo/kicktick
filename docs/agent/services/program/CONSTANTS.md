@@ -17,7 +17,7 @@ tags: [constants, seeds, enums, errors, StatKey]
 
 | Component | Devnet | Source |
 |---|---|---|
-| KickTick | `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` | `Anchor.toml`, `lib.rs`, relayer constants |
+| KickTick | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | `Anchor.toml`, `lib.rs`, relayer constants |
 | TxOracle | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `constants.rs` |
 
 The program ID must match the deployed binary and the copied IDL. Mainnet
@@ -29,13 +29,11 @@ addresses are not defined by the current project configuration.
 |---|---|---|
 | `Config` | `config` | Global admin, relayer, oracle settings |
 | `UserAccount` | `user`, owner | User collateral bookkeeping |
-| `UserVault` | `user_vault`, owner | User SOL custody |
+| `UserVault` | `user_vault`, owner | User USDC custody |
 | `Match_` | `match`, fixture ID as signed i64 LE | Fixture metadata |
-| `MatchVault` | `match_vault`, Match_ PDA | Match-level system account |
 | `Market` | `market`, fixture ID as signed i64 LE, market type byte, market sequence as u64 LE | Tradable market identity |
 | `MarketVault` | `market_vault`, Market PDA | Market collateral and payouts |
 | `Position` | `position`, Market PDA, owner | User shares for one market |
-| `SponsorVault` | `sponsor_vault` | Retained compatibility account |
 
 ## Market types and status
 
@@ -53,6 +51,9 @@ The first, third, fifth, and eighth market types are ternary; the other market
 types are binary. `PenaltyShot` and `VARCheck` use relayer-authorized off-chain
 resolution. The remaining types require oracle proof resolution.
 
+Market resolution may still understand ternary market types, but the current
+CLOB order and complete-set instructions accept binary markets only.
+
 ## Numeric constraints
 
 | Parameter | Value | Source |
@@ -65,10 +66,7 @@ resolution. The remaining types require oracle proof resolution.
 | Minimum price | 100 bps | `MIN_PRICE_BPS` |
 | Maximum price | 9,900 bps | `MAX_PRICE_BPS` |
 | Minimum trade quantity | 100 shares | `MIN_TRADE_QUANTITY` |
-| Default lock duration | Legacy 15 seconds; not used by `init_market` | `DEFAULT_LOCK_SECONDS` |
-| Default deadline | 120 seconds | `DEFAULT_DEADLINE_SECONDS` |
-| Minimum configured liquidity | 10,000,000 lamports | `MIN_ROUND_LIQUIDITY` |
-| CPI compute budget | 1,400,000 CU | `CPI_COMPUTE_UNITS` |
+| Minimum configured liquidity | 10,000 USDC base units | `MIN_MARKET_LIQUIDITY_BASE_UNITS` |
 
 `finality_delay` remains in Config for account compatibility and is initialized
 to zero by the current program. `DEFAULT_LOCK_SECONDS` is also retained for

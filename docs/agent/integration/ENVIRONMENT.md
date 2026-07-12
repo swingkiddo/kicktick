@@ -16,7 +16,7 @@ tags: [environment, network, program-IDs, endpoints]
 
 | Component | Devnet | Mainnet |
 |-----------|--------|---------|
-| **KickTick** | `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` | Devnet/current IDL |
+| **KickTick** | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | Devnet/current IDL |
 | **TxOracle** | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
 
 Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
@@ -26,7 +26,7 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | Token | Devnet Address | Program | Decimals |
 |-------|---------------|---------|----------|
 | **TxL** | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` | Token-2022 | 9 |
-| **USDT** | `ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh` | Token | 6 |
+| **USDC collateral** | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` | Legacy SPL Token | 6 |
 
 ## Network Endpoints
 
@@ -45,13 +45,15 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | `TXLINE_API_HOST` | `https://txline-dev.txodds.com` | relayer |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | relayer |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | relayer |
-| `KICKTICK_PROGRAM_ID` | `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` | relayer |
+| `KICKTICK_PROGRAM_ID` | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | relayer |
 | `TXORACLE_PROGRAM_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | relayer |
+| `COLLATERAL_MINT` | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` | relayer and Config initialization |
 | `WS_PORT` | `8080` | relayer |
 | `CLOB_DB_PATH` | `/app/data/kicktick-clob.sqlite` | relayer SQLite database |
 | `TEST_MODE` | `false` | relayer dev-only test control plane |
+| `CLOB_ONLY_MODE` | derived | relayer startup mode; see below |
 | `VITE_SOLANA_RPC_URL` | `https://api.devnet.solana.com` | frontend |
-| `VITE_KICKTICK_PROGRAM_ID` | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` | frontend |
+| `VITE_KICKTICK_PROGRAM_ID` | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | frontend |
 | `VITE_RELAYER_WS_URL` | `ws://localhost:8080` | frontend CLOB WebSocket |
 
 ## Config Values (On-Chain)
@@ -63,8 +65,19 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | Confirmation delay | **0 seconds** in current `Config` | `Config.finality_delay` (compatibility field) |
 | Lock behavior | **Event-driven**; also allowed after deadline | `market.rs::lock_market_handler` |
 | Default deadline seconds | **120 seconds** | `constants.rs:21` |
-| Min configured liquidity | **0.01 SOL** (10M lamports) | `constants.rs:25` |
+| Min configured liquidity | **0.01 USDC** (10,000 base units) | `constants.rs` |
 | CPI compute units | **1,400,000** | `constants.rs:28` |
+
+## CLOB-only development mode
+
+The relayer enables CLOB-only startup when `TEST_MODE=true` or
+`CLOB_ONLY_MODE=true`. It keeps the CLOB and WebSocket paths available while
+skipping TxLINE authentication, fixture ingestion, lifecycle recovery, SSE
+streaming, and periodic production jobs.
+
+`CLOB_ONLY_MODE=false` explicitly forces full startup even when
+`TEST_MODE=true`. With neither variable enabled, full production startup is the
+default.
 
 ## Related Docs
 

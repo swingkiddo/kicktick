@@ -26,9 +26,6 @@ tags: [structure, files, tree]
 | `.env.example` | config | Environment variable template |
 | `.gitignore` | config | Git ignore rules |
 | `deploy.sh` | script | Solana deployment script |
-| `setup-local.sh` | script | Local dev environment setup |
-| `simulation.ts` | script | TS simulation (SpikeDetector + settlement logic, 204 lines) |
-| `simulation.js` | script | Standalone JS simulation (122 lines) |
 
 ---
 
@@ -37,7 +34,7 @@ tags: [structure, files, tree]
 ### Root config
 | Path | Purpose |
 |------|---------|
-| `Anchor.toml` | Localnet/devnet cluster config, program ID `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` |
+| `Anchor.toml` | Localnet/devnet cluster config, program ID `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` |
 | `Cargo.toml` | Workspace root — Anchor 1.0.0, borsh |
 | `Cargo.lock` | Dependency lock |
 | `rust-toolchain.toml` | Rust 1.96.0 |
@@ -48,7 +45,7 @@ tags: [structure, files, tree]
 | `src/lib.rs` | — | Module router — wires the current Market/CLOB instruction surface |
 | `src/constants.rs` | — | Seeds, limits, StatKeys, CPI discriminator |
 | `src/errors.rs` | — | KickTickError definitions |
-| `src/state/` | 6 files | Config, Match_, Market, Position, UserAccount, SponsorVault |
+| `src/state/` | 6 files | Config, Match_, Market, Position, UserAccount, OrderAccount |
 | `src/instructions/` | — | Config, match, market, user, trade, oracle, and redemption handlers |
 
 #### Accounts
@@ -57,14 +54,14 @@ tags: [structure, files, tree]
 - `UserAccount` / `UserVault` — available and reserved user collateral
 - `Market` — market type, sequence, lifecycle, collateral, volume, fill sequence
 - `Position` — outcome shares, locked shares, claim state
-- `MarketVault` — system-owned SOL vault per market
-- `SponsorVault` — retained compatibility account
+- `OrderAccount` — order terms, remaining quantity, and exact BUY collateral reserve
+- `MarketVault` — SPL USDC vault per market
 
 #### Instructions
 `init_config`, `init_match`, `set_relayer`, `init_user`, `deposit`, `withdraw`,
 `init_market`, `lock_market`, `resolve_market_offchain`,
 `resolve_market_with_proof`, `confirm_market`, `void_market`,
-`settle_complete_set_binary`, `settle_complete_set_ternary`,
+`split`, `merge`, `settle_complete_set`,
 `settle_share_trade`, `claim`, `cleanup_position`, and `close_market_vault`.
 
 ### `client/` — TypeScript SDK (removed)
@@ -103,7 +100,7 @@ The `client/` directory previously contained a TypeScript SDK (`market-manager.t
 | `src/api/ws-server.ts` | — | WebSocket transport and fixture/market subscriptions |
 | `src/api/test-controller.ts` | — | TEST_MODE-only synthetic match/market/event control |
 | `src/scripts/cpi-spike.ts` | 456 | CPI spike test — validate_stat feasibility |
-| `src/scripts/verify-tokens.ts` | 75 | TxL + USDT mint verification |
+| `src/scripts/verify-tokens.ts` | 75 | TxL + USDC collateral mint verification |
 
 ### `docs/agent/services/relayer/` — Agent Docs
 
@@ -132,9 +129,8 @@ The `client/` directory previously contained a TypeScript SDK (`market-manager.t
 | `app/page.tsx` | Landing page: 4 demo markets, stats bar, live odds sidebar |
 | `app/globals.css` | Tailwind + custom CSS |
 | `components/Header.tsx` | Nav header + wallet multi-button (Phantom/Solflare) |
-| `components/MarketCard.tsx` | Market card: YES/NO pool bar, bet buttons, countdown timer |
-| `components/CreateMarketModal.tsx` | 2-step modal: type selection + duration/details |
-| `components/LiveOddsFeed.tsx` | Simulated real-time odds display (demo data only) |
+| `pages/HomePage.tsx` | Live binary market, orderbook, order, portfolio, and claim views |
+| `admin/AdminTrading.tsx` | Development trading and market controls |
 | `lib/constants.ts` | Program IDs, network config, market settings |
 | `lib/WalletContext.tsx` | Solana wallet adapter provider |
 

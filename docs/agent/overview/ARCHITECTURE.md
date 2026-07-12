@@ -60,8 +60,8 @@ tags: [architecture, data-flow, components]
 │                      │       │                       │
 │ kicktick program     │       │ Header (wallet)       │
 │   init_config        │       │ CLOB market board     │
-│   init_market        │       │ CreateMarketModal     │
-│   lock_market        │       │ Live orderbook        │
+│   init_market        │       │ Live market board     │
+│   lock_market        │       │ Orderbook + trading   │
 │   resolve_market_*   │       │                       │
 │   confirm_market     │       │ Wallet: Phantom/Solflare│
 │   claim / withdraw   │       │                       │
@@ -79,7 +79,7 @@ tags: [architecture, data-flow, components]
 - Markets stay `Open` while their outcome is still uncertain. The relayer locks
   immediately when an SSE event makes the outcome determinable, or after
   `expires_at` when the event did not occur.
-- Native SOL custody in MarketVault (system-owned PDA per market)
+- SPL USDC custody in UserVault and MarketVault token accounts
 - Position tracking per user per market
 - Settlement via CPI `txoracle::validate_stat` or off-chain relayer
 - Instructions: `init_config`, `init_market`, `init_user`, `deposit`, `withdraw`, `confirm_market`, `resolve_market_with_proof`, `resolve_market_offchain`, `close_market_vault`, `claim`, `cleanup_position`, `set_relayer`
@@ -93,8 +93,8 @@ tags: [architecture, data-flow, components]
 - Crank: builds and sends Solana transactions
 - WebSocket: pushes market and orderbook statuses to frontend
 
-### Frontend (Next.js, currently demo-only)
+### Frontend (Next.js)
 - Wallet connection (Phantom, Solflare)
-- Market browsing with bet interface
-- Live odds visualization (demo data)
-- Market creation modal
+- Live binary market browsing, orderbook trading, portfolio, and claims
+- Wallet-authenticated BUY and SELL order submission through the relayer
+- Development-only market and test-wallet controls under the admin route

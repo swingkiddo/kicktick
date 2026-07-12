@@ -56,7 +56,7 @@ docs/agent/
 │   ├── relayer/                   ← off-chain crank (stub)
 │   │   └── README.md              ← purpose, modules, current state
 │   └── frontend/                  ← Next.js UI (stub)
-│       └── README.md              ← components, demo-only state
+│       └── README.md              ← live trading components and runtime state
 ├── integration/                   ← cross-service docs
 │   ├── DATA-FLOW.md               ← end-to-end: TxLINE → relayer → chain → UI
 │   ├── DEPENDENCIES.md            ← tech stack, versions, dep graph
@@ -83,10 +83,10 @@ All docs carry YAML frontmatter (`id`, `type`, `service`, `depends_on`, `related
 
 | Component | Address |
 |-----------|---------|
-| KickTick program | `HrMUXZQ7WQ5uNnUWvf5bm2ZgA3En6VBmip78vLSdREqg` |
+| KickTick program | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` |
 | TxOracle program | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` |
 | TxL mint (Token-2022) | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` |
-| USDT mint (Token) | `ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh` |
+| USDC collateral mint (Token) | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
 | RPC | `https://api.devnet.solana.com` |
 | TxLINE API | `https://txline-dev.txodds.com` |
 

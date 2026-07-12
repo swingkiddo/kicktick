@@ -20,6 +20,14 @@ required; the relayer is not an in-memory-only crank.
 
 Use `CLOB_DB_PATH` to select the database location. `./scripts/run.sh relayer` persists the default database under `relayer/data/`. See [the WebSocket API](./API.md), [settlement and recovery](./SETTLEMENT.md), and [the architecture](./ARCHITECTURE.md) for the wire protocol, backup/recovery procedure, and trusted-relayer model.
 
+The current CLOB intake and settlement path is binary-only. It decodes the
+reserve-aware 118-byte Order PDA layout, reports ceil-based BUY reserves, and
+submits complementary complete-set orders in YES/NO outcome order.
+
+For isolated development, `TEST_MODE=true` or `CLOB_ONLY_MODE=true` starts the
+CLOB/WebSocket paths without TxLINE ingestion or production recovery jobs.
+`CLOB_ONLY_MODE=false` overrides test mode and forces full startup.
+
 ## Operational status
 
 The current implementation is a devnet/MVP relayer. It supports the complete event-to-settlement path, durable SQLite lifecycle state, reconnect replay, CLOB matching, and match-scoped WebSocket broadcasts.

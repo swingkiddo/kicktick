@@ -30,11 +30,16 @@ Config
 ├── daily_scores_merkle_roots: Pubkey
 ├── finality_delay: i64
 ├── min_liquidity: u64
+├── collateral_mint: Pubkey
+├── collateral_decimals: u8
+├── collateral_token_program: Pubkey
 └── bump: u8
 ```
 
 `finality_delay` is retained for compatibility with the Config PDA already
-initialized on devnet. The current initialization sets it to `0`.
+initialized on devnet. The current initialization sets it to `0`. Collateral
+configuration is immutable after initialization and is used by every token
+vault constraint.
 
 ## Match PDA
 
@@ -69,11 +74,11 @@ UserAccount  ["user", owner]
 └── bump: u8
 
 UserVault    ["user_vault", owner]
-└── system-owned SOL account
+└── SPL token account (configured collateral mint; authority = UserAccount)
 ```
 
-`deposit` moves SOL into the user vault and credits `available_balance`.
-`withdraw` moves available SOL back to the wallet. CLOB settlement consumes or
+`deposit` moves configured USDC into the user vault and credits `available_balance`.
+`withdraw` moves available USDC back to the user's token account. CLOB settlement consumes or
 credits these balances through the configured relayer.
 
 ## Market PDA
@@ -107,9 +112,8 @@ Market
 
 **Seeds:** `["market_vault", market_pubkey]`
 
-`MarketVault` is a system-owned, zero-data account holding market collateral,
-complete-set funds, and payout funds. It is not the match vault and is not
-addressed by a Round identifier.
+`MarketVault` is an SPL token account holding market collateral, complete-set
+funds, and payout funds. Its authority is the Market PDA.
 
 ## Position PDA
 
@@ -128,13 +132,34 @@ Position
 One Position exists per wallet and market. The position stores outcome shares,
 not a direct YES/NO bet amount.
 
-## SponsorVault PDA
+## Order PDA
 
-**Seeds:** `["sponsor_vault"]`
+**Seeds:** `["order", owner, nonce (u64 LE)]`
 
-`SponsorVault` remains in the account model for compatibility, but there is no
-public sponsor instruction in the current Anchor instruction surface. It must
-not be treated as the active CLOB funding path.
+```text
+OrderAccount
+├── owner: Pubkey
+├── market: Pubkey
+├── side: Buy | Sell
+├── outcome_index: u8
+├── price_bps: u16
+├── quantity: u64
+├── remaining_quantity: u64
+├── reserved_collateral: u64
+├── nonce: u64
+├── expires_at: i64
+├── status: Open | Partial | Filled
+└── bump: u8
+```
+
+BUY orders reserve `ceil(quantity × price_bps / 10_000)` USDC base units.
+`reserved_collateral` is consumed exactly as fills settle and any remainder is
+released on a full fill, cancellation, or expiry. SELL orders reserve shares in
+`Position.locked_shares`; locked shares cannot be transferred or merged.
+
+The addition of `reserved_collateral` expanded the serialized account to 118
+bytes including the Anchor discriminator. This is a breaking account-layout
+change: deployments require fresh Order PDA state.
 
 ## Account summary
 
@@ -143,8 +168,8 @@ not be treated as the active CLOB funding path.
 | Config | `config` | Anchor account | Admin, relayer, oracle and global settings |
 | Match_ | `match`, fixture ID | Anchor account | Fixture metadata and legacy aggregate fields |
 | UserAccount | `user`, owner | Anchor account | Available and reserved user collateral |
-| UserVault | `user_vault`, owner | System account | User SOL custody |
+| UserVault | `user_vault`, owner | SPL token account | User USDC custody |
 | Market | `market`, fixture ID, type, sequence | Anchor account | CLOB market lifecycle and fill accounting |
-| MarketVault | `market_vault`, market | System account | Market collateral and payouts |
+| MarketVault | `market_vault`, market | SPL token account | Market collateral and payouts |
 | Position | `position`, market, owner | Anchor account | Outcome shares and claim state |
-| SponsorVault | `sponsor_vault` | Anchor account | Retained compatibility account |
+| OrderAccount | `order`, owner, nonce | Anchor account | Signed order terms and exact remaining reserve |

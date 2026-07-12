@@ -23,7 +23,9 @@ tags: [project, hackathon, goals]
 
 Sub-minute micro prediction markets on Solana. Create + settle markets in <60s using live TxODDS oracle odds + on-chain Merkle proof settlement.
 
-Users bet on real-time soccer events (next goal, next corner, cards, penalties) with native SOL. Markets open and close in seconds, settled via CPI to the txoracle program using Merkle proofs from the TxLINE data feed.
+Users trade USDC-backed positions on real-time soccer events (next goal, next
+corner, cards, penalties). Markets open and close in seconds and resolve via
+CPI to the TxOracle program using Merkle proofs from the TxLINE data feed.
 
 ## Three Subsystems
 
@@ -35,7 +37,7 @@ Users bet on real-time soccer events (next goal, next corner, cards, penalties) 
 
 ## Key Characteristics
 
-- **Native SOL** — no SPL tokens for betting
+- **SPL USDC collateral** — user and market vaults use the configured legacy SPL Token mint
 - **CPI settlement** — `resolve_market_with_proof` calls `txoracle::validate_stat` on-chain
 - **Off-chain settlement** — `resolve_market_offchain` for PenaltyShot, VARCheck (relayer sets outcome)
 - **Event-driven markets** — SSE events from TxLINE trigger market creation;

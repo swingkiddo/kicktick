@@ -14,11 +14,7 @@ tags: [instructions, CPI, settlement, clob, market]
 
 # KickTick — On-Chain Instructions
 
-The public instruction names below are the Anchor/IDL API. Some Rust source
-files retain historical filenames such as `settle_round.rs` and
-`settle_offchain_round.rs`; those filenames do not define the public API.
-
-All market funds use native SOL. The relayer is authorized through `Config` for
+The public instruction names below are the Anchor/IDL API. The relayer is authorized through `Config` for
 CLOB settlement and off-chain resolution. Users sign their own collateral and
 claim operations.
 
@@ -53,23 +49,35 @@ cannot be the default public key.
 
 ### `init_user`
 
-Creates the user collateral bookkeeping account and its system-owned user vault.
+Creates the user collateral bookkeeping account and its SPL token vault.
 
 ### `deposit`
 
-Transfers native SOL from the user wallet to the user vault and increments
+Transfers configured USDC from the user's token account to the user vault and increments
 `UserAccount.available_balance`. The amount must be positive.
 
 ### `withdraw`
 
-Transfers available native SOL from the user vault back to the user wallet. It
+Transfers available USDC from the user vault back to the user's token account. It
 rejects zero amounts and withdrawals larger than the available balance.
+
+### `split`
+
+Binary-only complete-set creation while the market is Open. It moves an exact
+USDC base-unit amount from the user's available collateral into MarketVault and
+credits the same amount of YES shares and NO shares to the user's Position.
+
+### `merge`
+
+Binary-only inverse of `split` while the market is Open. It burns equal,
+unlocked YES and NO shares and returns the same number of USDC base units from
+MarketVault to the user's available collateral.
 
 ## Market lifecycle
 
 ### `init_market`
 
-Creates an Open Market and its system-owned MarketVault. The signer must be the
+Creates an Open Market and its SPL token MarketVault. The signer must be the
 Config admin.
 
 Arguments:
@@ -124,22 +132,28 @@ The relayer matches signed orders off-chain and submits the resulting fills on
 chain. The program validates prices, quantities, user balances, position
 ownership, and monotonically increasing `fill_sequence` values.
 
-### `settle_complete_set_binary`
+### `settle_complete_set`
 
-Mints one share of each binary outcome to two owners and debits their user
-collateral at the supplied outcome prices. The two prices must sum to the
-price scale.
+Creates a binary YES/NO complete set and debits the participants' stored BUY
+reserves at the supplied outcome prices. The price vector must sum to the price
+scale. Integer remainder is assigned deterministically to an order with enough
+remaining reserve, so the MarketVault receives exactly the share quantity.
 
-### `settle_complete_set_ternary`
+Only binary markets are accepted. Complementary BUY orders may mint a complete
+set automatically; ternary complete-set settlement is unsupported.
 
-The ternary equivalent for three owners/outcomes. All three prices must satisfy
-the market price constraints.
+The typed context contains `relayer`, `config`, `market`, `market_vault`,
+`collateral_mint`, and `token_program`. For each outcome, sorted by outcome
+index, the relayer supplies four writable remaining accounts in this order:
+`user_account`, `user_vault`, `order`, `position`.
 
 ### `settle_share_trade`
 
 Transfers an outcome's shares from seller to buyer and transfers the buyer's
-SOL payment to the seller's available balance. The seller must hold enough
+USDC payment to the seller's available balance. The seller must hold enough
 unlocked shares and the fill sequence must be the next accepted sequence.
+The buyer's stored reserve is consumed directly and any final remainder is
+released when the order becomes fully filled.
 
 ## Redemption and cleanup
 
@@ -147,7 +161,8 @@ unlocked shares and the fill sequence must be the next accepted sequence.
 
 User-only payout operation. For a Resolved market it credits the user's UserVault
 with the winning shares. For a Voided market it applies `void_payout_bps` to all
-shares. The position is marked claimed and then closed.
+shares. The payout reduces `Market.collateral`; the position is marked claimed
+and then closed. A `ResolvedPending` market cannot be claimed.
 
 ### `cleanup_position`
 
@@ -167,15 +182,15 @@ handled. It closes the MarketVault to the selected recipient.
 | `init_match` | Config admin | Creates Match_ and match vault |
 | `set_relayer` | Config admin | Rotates relayer |
 | `init_user` | User | Creates collateral accounts |
-| `deposit` / `withdraw` | User | Moves available SOL |
+| `deposit` / `withdraw` | User | Moves available USDC |
+| `split` / `merge` | User | Converts USDC to/from a binary complete set |
 | `init_market` | Config admin | Creates Open Market and vault |
 | `lock_market` | Authority | Freezes market |
 | `resolve_market_with_proof` | Resolver | CPI oracle resolution |
 | `resolve_market_offchain` | Config relayer | Trusted off-chain resolution |
 | `confirm_market` | Caller | Finalizes resolution |
 | `void_market` | Config admin | Voids market |
-| `settle_complete_set_binary` | Config relayer | Mints binary complete sets |
-| `settle_complete_set_ternary` | Config relayer | Mints ternary complete sets |
+| `settle_complete_set` | Config relayer | Creates binary complete sets |
 | `settle_share_trade` | Config relayer | Transfers shares between users |
 | `claim` | User | Pays out and closes position |
 | `cleanup_position` | Config relayer | Closes losing position |

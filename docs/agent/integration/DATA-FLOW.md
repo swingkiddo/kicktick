@@ -56,7 +56,7 @@ tags: [data-flow, SSE, CPI, WebSocket]
 │                      │       │                       │
 │ kicktick program     │       │ Header (wallet)       │
 │   init_config        │       │ CLOB market board     │
-│   init_market        │       │ CreateMarketModal     │
+│   init_market        │       │ Market/order views    │
 │   lock_market        │       │ Live orderbook        │
 │   resolve_market_*   │       │                       │
 │   confirm_market     │       │ Wallet: Phantom/Solflare│

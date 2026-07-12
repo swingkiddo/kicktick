@@ -20,7 +20,7 @@ tags: [dependencies, tech-stack, versions]
 |-------|-----------|---------|------|
 | **Smart Contract** | Rust + Anchor | anchor 1.0.0, rust 1.96.0 | On-chain program |
 | **Blockchain** | Solana | sbpf target (devnet) | Runtime |
-| **Token** | Native SOL | — | Betting, payouts, sponsor liquidity |
+| **Token** | SPL USDC | 6 decimals on devnet | Collateral, CLOB settlement, payouts |
 | **Oracle SDK** | `@swingkiddo/txodds-client` | GitHub package | TxLINE API wrapper |
 | **Relayer** | Node.js + TypeScript | ES2020 | Off-chain crank |
 | **Frontend** | Next.js + React | next 14.2, react 18.2 | UI |
@@ -80,9 +80,10 @@ tags: [dependencies, tech-stack, versions]
 │                                                          │
 │  lib/constants.ts (no deps — pure config)                │
 │                                                          │
-│  components/ (demo-only — no on-chain deps yet)          │
-│    ├── react (useState, useEffect)                       │
-│    └── tailwind (styling)                                │
+│  pages + components (live CLOB and on-chain clients)     │
+│    ├── wallet adapter + @solana/web3.js                  │
+│    ├── relayer WebSocket provider                        │
+│    └── react + CSS styling                               │
 └─────────────────────────────────────────────────────────┘
 
 External:
@@ -92,7 +93,7 @@ External:
 │    └── SSE: /api/odds/stream, /api/scores/stream        │
 │                                                          │
 │  Solana Devnet (api.devnet.solana.com)                   │
-│    └── Programs: txoracle (6pW64...), kicktick (ECzBne..)│
+│    └── Programs: txoracle (6pW64...), kicktick (LLQr8...)│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -143,6 +144,6 @@ External:
 | `TXLINE_API_HOST` | `https://txline-dev.txodds.com` | relayer |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | relayer |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | relayer |
-| `KICKTICK_PROGRAM_ID` | `7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4` | relayer |
+| `KICKTICK_PROGRAM_ID` | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | relayer |
 | `TXORACLE_PROGRAM_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | relayer |
 | `WS_PORT` | `8080` | relayer |

@@ -55,7 +55,7 @@ against devnet: it resets a validator and deploys a fresh program.
 1. Add the variant to `programs/kicktick/src/state/market.rs`.
 2. Update `Market::outcome_count_for` and `Market::requires_oracle`.
 3. Add or update oracle stat/predicate mapping in
-   `programs/kicktick/src/instructions/settle_round.rs`.
+   `programs/kicktick/src/instructions/oracle.rs`.
 4. Add the matching relayer definition and trigger behavior in
    `relayer/src/domain/markets.ts` and `relayer/src/market/triggers.ts`.
 5. Add Anchor coverage in `kicktick/tests/market.ts` and settlement coverage
@@ -95,7 +95,7 @@ sequence identifies the score record being proven.
 wallet-signed orders
   → relayer matching engine
   → durable fill record
-  → settle_complete_set_binary/ternary or settle_share_trade
+  → settle_complete_set or settle_share_trade
   → on-chain fill_sequence increment
 ```
 

@@ -56,7 +56,7 @@ versions without checking that file. The current error families are:
 ## Verify deployment and accounts
 
 ```bash
-solana program show 7Pc2ipKnDya7UKhQVQA2zdateaLpgHGQbyNt34R5dNF4 --url devnet
+solana program show LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND --url devnet
 solana program show 6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J --url devnet
 solana confirm -v <TX_SIGNATURE> --url devnet
 solana account <PDA> --output json --url devnet

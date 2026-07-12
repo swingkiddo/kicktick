@@ -19,10 +19,11 @@ Create and settle prediction markets in **under 60 seconds** using live TxODDS o
 
 ## Key Features
 
-- **Native SOL** betting — no SPL tokens for wagers
-- **CPI settlement** — `settle_round` calls `txoracle::validate_stat` on-chain
-- **Off-chain settlement** — `settle_offchain_round` for PenaltyShot/VARCheck
-- **Sub-minute markets** — 15s lock, 60s finality delay, 15–300s duration
+- **SPL USDC collateral** — configured legacy SPL Token vaults for users and markets
+- **Binary CLOB/CTF trading** — exact BUY reserves, direct share trades, and complete-set creation
+- **CPI settlement** — `resolve_market_with_proof` calls `txoracle::validate_stat` on-chain
+- **Off-chain resolution** — `resolve_market_offchain` for PenaltyShot/VARCheck
+- **Event-driven market lifecycle** — markets stay open until the outcome is known or the deadline expires; current confirmation is immediate
 - **Event-driven** — SSE from TxLINE triggers market creation and settlement
 - **PDA vaults** — MatchVault (system-owned), Position tracking, SponsorVault
 
@@ -38,12 +39,12 @@ Create and settle prediction markets in **under 60 seconds** using live TxODDS o
                                │
                                ▼
 ┌──────────────────────────────────────────────────────┐
-│  RELAYER (Node/TS — off-chain crank, no DB)          │
+│  RELAYER (Node/TS — off-chain crank + SQLite CLOB)    │
 │                                                      │
-│  txline-auth → SSE parser → fixture-watcher          │
-│  market-trigger (rules engine)                       │
-│  proof-gatherer → crank (build+sign+send tx)         │
-│  ws-server → WebSocket to frontend                   │
+│  TxLINE client → score mapper → fixture watcher      │
+│  market triggers → durable lifecycle executor        │
+│  CLOB matching → fill settlement → Anchor client     │
+│  proof-gatherer → crank → WebSocket transport        │
 └──────────┬───────────────────────────────────────────┘
            │ CPI validate_stat          │ WebSocket
            ▼                            ▼
@@ -51,16 +52,16 @@ Create and settle prediction markets in **under 60 seconds** using live TxODDS o
 │ Solana Devnet       │    │ Frontend (Next.js)       │
 │                     │    │                          │
 │ kicktick program    │    │ Wallet (Phantom/Solflare)│
-│  init_config        │    │ MarketCard (bet UI)      │
-│  init_match         │    │ CreateMarketModal        │
-│  open_round         │    │ LiveOddsFeed             │
-│  place_bet          │    │                          │
-│  settle_round (CPI) │    └─────────────────────────┘
-│  settle_offchain    │
-│  confirm_round      │
-│  claim_winnings     │
-│  cancel_round       │
-│  challenge_equivoc. │
+│  init_config        │    │ Live market board       │
+│  init_match         │    │ Orderbook + order form  │
+│  init_market        │    │ Portfolio + claims      │
+│  lock_market        │    │                          │
+│  resolve_market_*   │    └─────────────────────────┘
+│  confirm_market     │
+│  split / merge      │
+│  settle_complete_set│
+│  settle_share_trade │
+│  claim              │
 │                     │
 │ txoracle program    │
 │  validate_stat (CPI)│
@@ -73,11 +74,8 @@ Create and settle prediction markets in **under 60 seconds** using live TxODDS o
 kicktick/
 ├── README.md
 ├── AGENTS.md                    # Agent instructions
-├── setup-local.sh               # Local environment setup
 ├── docker-compose.yml           # Dev orchestration
 ├── docker-compose.prod.yml      # Prod orchestration
-├── simulation.ts                # Settlement logic demos
-├── simulation.js
 ├── scripts/
 │   ├── build.sh                 # Docker build [all|contracts|frontend|relayer]
 │   └── deploy.sh                # Deploy [devnet|mainnet]
@@ -105,10 +103,9 @@ kicktick/
 ## Quick Start
 
 ```bash
-# 1. Clone and setup
+# 1. Clone and enter the repository
 git clone https://github.com/Kubo-cmd/kicktick.git
 cd kicktick
-./setup-local.sh
 
 # 2. Configure wallet (devnet)
 solana-keygen new --outfile ~/.config/solana/id.json
@@ -120,8 +117,8 @@ solana airdrop 2
 # 4. Deploy program to devnet
 ./scripts/deploy.sh devnet
 
-# 5. Start frontend
-cd frontend && npm run dev
+# 5. Start services through Docker
+./scripts/run.sh all
 ```
 
 ## Build & Deploy
@@ -140,10 +137,10 @@ Deployment info saved to `deployment-{network}.json`.
 
 | Component | Address |
 |-----------|---------|
-| KickTick program | `DU7KRbgpjdhKtmHwNawUCvy61WMazi76unzNB2Y1chTJ` |
+| KickTick program | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` |
 | TxOracle program | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` |
 | TxL mint (Token-2022) | `4Zao8ocPhmMgq7PdsYWyxvqySMGx7xb9cMftPMkEokRG` |
-| USDT mint (Token) | `ELWTKspHKCnCfCiCiqYw1EDH77k8VCP74dK9qytG2Ujh` |
+| USDC collateral mint (Token) | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
 
 ## On-Chain Config
 
@@ -151,27 +148,28 @@ Deployment info saved to `deployment-{network}.json`.
 |-----------|-------|
 | Min market duration | 15 seconds |
 | Max market duration | 300 seconds (5 min) |
-| Finality delay | 60 seconds |
-| Default lock | 15 seconds |
-| Min round liquidity | 0.01 SOL |
+| Confirmation delay | 0 seconds in current Config |
+| Lock behavior | Event-driven, or permissionless after deadline |
+| Min configured liquidity | 0.01 USDC (10,000 base units) |
 | CPI compute units | 1,400,000 |
 
 ## Market Lifecycle
 
 1. Relayer detects match event via SSE (goal, corner, card, etc.)
-2. `open_round` — market opens with specified duration
-3. Users place YES/NO bets (native SOL)
-4. Market locks at deadline
-5. `settle_round` via CPI to `txoracle::validate_stat` with Merkle proof
-6. 60s finality delay → `confirm_round`
-7. Winners `claim_winnings` from vault
+2. `init_market` — market opens with captured oracle parameters
+3. Relayer matches signed CLOB orders off-chain
+4. `settle_complete_set` or `settle_share_trade` applies binary fills on-chain
+5. When the resolution condition is observed (for example, a goal), the relayer locks the market immediately; otherwise it locks it after the deadline
+6. `resolve_market_with_proof` or `resolve_market_offchain` records the outcome
+7. `confirm_market` immediately finalizes the market
+8. Users call `claim` for winning or voided shares
 
 ## Development Status
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 0 | TxLINE auth, CPI spike test, token verification | ✅ Done |
-| 1 | Anchor program (10 instructions, 5 PDAs, native SOL) | ✅ Done |
+| 1 | Anchor program (USDC Market/CLOB lifecycle) | ✅ Done |
 | 2 | Relayer SSE parser, market triggers, crank, WebSocket | ⏳ In progress |
 | 3 | Replay engine + demo | ⏳ Pending |
 
@@ -181,7 +179,7 @@ Deployment info saved to `deployment-{network}.json`.
 - PDA-controlled vaults (no privileged withdrawal keys)
 - Strict duration + overflow checks on-chain
 - Equivocation challenge mechanism
-- Finality delay before confirmation
+- Event-driven lock prevents trading after the outcome becomes known
 
 ## Documentation
 

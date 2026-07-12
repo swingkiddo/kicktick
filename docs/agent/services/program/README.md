@@ -15,24 +15,24 @@ tags: [program, overview, PDA]
 
 ## Purpose
 
-Sub-minute prediction markets on Solana. Trustless market resolution via CPI to the TxOracle program. Users trade native SOL on real-time soccer events through CLOB markets with on-chain Merkle proof verification.
+Sub-minute prediction markets on Solana. Trustless market resolution via CPI to the TxOracle program. Users trade USDC-denominated shares on real-time soccer events through CLOB markets with on-chain Merkle proof verification.
 
 ## Key Concepts
 
-### Native SOL
-No SPL tokens are used by the KickTick program. User collateral, CLOB
-settlement, and payouts use native SOL lamports.
+### USDC collateral
+User collateral, CLOB settlement, and payouts use the configured SPL USDC mint.
+The mint, decimals, and token program are captured in `Config`; user and market
+vaults are SPL token accounts.
 
 ### PDA Types
 | PDA | Seeds | Purpose |
 |-----|-------|---------|
 | Config | `["config"]` | Global config, admin, oracle program ID, relayer |
-| Match_ | `["match", fixture_id]` | Match lifecycle, team names, fixture vault data |
+| Match_ | `["match", fixture_id]` | Match metadata and lifecycle compatibility fields |
 | Market | `["market", fixture_id, market_type, market_seq]` | Tradable market state, expiry, resolution |
 | Position | `["position", market, owner]` | User position per market |
 | UserAccount / UserVault | `["user", owner]` / `["user_vault", owner]` | Wallet collateral bookkeeping and custody |
 | MarketVault | `["market_vault", market]` | Market collateral and complete-set funds |
-| SponsorVault | `["sponsor_vault"]` | Retained compatibility account |
 
 Full details: `program/ARCHITECTURE.md`
 
@@ -47,9 +47,9 @@ Full details: `program/ARCHITECTURE.md`
 | `resolve_market_with_proof` | Resolve through TxOracle CPI |
 | `resolve_market_offchain` | Resolve trusted off-chain market types |
 | `confirm_market` / `void_market` | Finalize or void a market |
-| `settle_complete_set_binary` | Mint binary complete sets for a fill |
-| `settle_complete_set_ternary` | Mint ternary complete sets for a fill |
+| `settle_complete_set` | Create a binary complete set for a fill |
 | `settle_share_trade` | Transfer shares between buyer and seller |
+| `split` / `merge` | Convert exact collateral to/from binary YES+NO complete sets |
 | `claim` | Pay winning/voided shares to a user |
 | `cleanup_position` / `close_market_vault` | Reclaim terminal account rent |
 
@@ -63,6 +63,10 @@ Full details: `program/ARCHITECTURE.md`
   determinable; after the deadline, any caller may perform the timeout lock.
 - **CLOB trading:** The relayer matches signed orders off-chain and submits
   complete-set or share-trade fills through the relayer-authorized instructions.
+- **Exact reserves:** BUY orders store a ceil-based `reserved_collateral` value;
+  fills, cancellation, and expiry consume or release that stored amount exactly.
+- **Binary CTF scope:** split, merge, order creation, and CLOB settlement support
+  binary YES/NO markets only in this release.
 - **Payout:** `claim` → winning or voided share payout from the MarketVault to the UserVault.
 - **Cleanup:** `cleanup_position` and `close_market_vault` clear finished market state.
 
@@ -88,7 +92,6 @@ programs/kicktick/src/
 │   ├── market.rs — Market PDA, MarketType, MarketStatus, MarketParams
 │   ├── position.rs — Position PDA with outcome shares
 │   ├── user_account.rs — UserAccount PDA
-│   └── vault.rs — SponsorVault compatibility account
 └── instructions/
     ├── mod.rs (22 lines) — re-exports
     ├── init_config.rs (32 lines)
@@ -98,7 +101,7 @@ programs/kicktick/src/
     ├── trade.rs — complete-set and share-trade settlement
     ├── oracle.rs — proof settlement
     ├── redeem.rs — claim, cleanup, vault close
-    └── settle_round.rs / settle_offchain_round.rs — internal legacy filenames
+    └── token.rs — SPL token transfers and price-cost math
 ```
 
 ## Tests
