@@ -205,7 +205,7 @@ interface CrankStatus {
 
 Emitted via `EventEmitter`, consumed by:
 - `ws-server.ts` → push to frontend
-- `index.ts` → logging + WS broadcast
+- `app/relayer-runtime.ts` → logging + WS broadcast
 
 ---
 
@@ -233,7 +233,8 @@ Config has `finality_delay = 0`, so confirmation is immediate after resolution.
 |-------|----------|
 | Transaction failure | Retry up to 3x with backoff |
 | Anchor error log | Parse for anchor error code, surface in status |
-| Missing proof data | Failure logged, no retry (proof is deterministic for seq) |
+| Proof record not merklized yet | Retry only `ProofNotReadyError` with bounded backoff |
+| Other proof/auth/network error | Fail fast and preserve the durable lifecycle action for diagnosis/recovery |
 
 ## Current limitations
 

@@ -19,7 +19,9 @@ tags: [environment, network, program-IDs, endpoints]
 | **KickTick** | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | Devnet/current IDL |
 | **TxOracle** | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA` |
 
-Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
+The KickTick ID is declared in `kicktick/programs/kicktick/src/lib.rs` and
+`kicktick/Anchor.toml`. The TxOracle ID is defined in program constants and the
+relayer network configuration.
 
 ## Token Mints
 
@@ -44,6 +46,7 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | `TXLINE_API_TOKEN` | — | relayer |
 | `TXLINE_API_HOST` | `https://txline-dev.txodds.com` | relayer |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | relayer |
+| `SOLANA_RPC_MIN_INTERVAL_MS` | `750` | relayer HTTP RPC throttle |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | relayer |
 | `KICKTICK_PROGRAM_ID` | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | relayer |
 | `TXORACLE_PROGRAM_ID` | `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J` | relayer |
@@ -51,7 +54,8 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | `WS_PORT` | `8080` | relayer |
 | `CLOB_DB_PATH` | `/app/data/kicktick-clob.sqlite` | relayer SQLite database |
 | `TEST_MODE` | `false` | relayer dev-only test control plane |
-| `CLOB_ONLY_MODE` | derived | relayer startup mode; see below |
+| `TEST_AUTH_REQUIRED` | `false` | require relayer-wallet signature for test controls |
+| `CLOB_ONLY_MODE` | unused | compatibility variable; current runtime ignores it |
 | `VITE_SOLANA_RPC_URL` | `https://api.devnet.solana.com` | frontend |
 | `VITE_KICKTICK_PROGRAM_ID` | `LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND` | frontend |
 | `VITE_RELAYER_WS_URL` | `ws://localhost:8080` | frontend CLOB WebSocket |
@@ -68,16 +72,17 @@ Defined in: `kicktick/programs/kicktick/src/constants.rs:4`
 | Min configured liquidity | **0.01 USDC** (10,000 base units) | `constants.rs` |
 | CPI compute units | **1,400,000** | `constants.rs:28` |
 
-## CLOB-only development mode
+## Relayer development mode
 
-The relayer enables CLOB-only startup when `TEST_MODE=true` or
-`CLOB_ONLY_MODE=true`. It keeps the CLOB and WebSocket paths available while
-skipping TxLINE authentication, fixture ingestion, lifecycle recovery, SSE
-streaming, and periodic production jobs.
+The current relayer always runs the full recovery, TxLINE authentication,
+fixture ingestion, SSE, lifecycle, cleanup, and scheduler path. `TEST_MODE=true`
+or `NODE_ENV=development` additionally registers the synthetic test control
+plane. `CLOB_ONLY_MODE` is not consulted by the current runtime.
 
-`CLOB_ONLY_MODE=false` explicitly forces full startup even when
-`TEST_MODE=true`. With neither variable enabled, full production startup is the
-default.
+`TEST_AUTH_REQUIRED=false` lets local development clients use the test control
+plane without signing the relayer-admin challenge. Set it to `true` before the
+development service is reachable outside a trusted local environment, and do
+not enable the test control plane in production.
 
 ## Related Docs
 

@@ -49,12 +49,18 @@ docs/agent/
 │   ├── program/                   ← Anchor smart contract (deep docs)
 │   │   ├── README.md              ← purpose, PDA overview, key concepts
 │   │   ├── ARCHITECTURE.md        ← account model, PDA seeds, state
-│   │   ├── INSTRUCTIONS.md        ← 12 instructions: accounts, args, logic
+│   │   ├── INSTRUCTIONS.md        ← 23 instructions: accounts, args, logic
 │   │   ├── CONSTANTS.md           ← seeds, enums, config, errors, StatKey
 │   │   ├── BUILD.md               ← build, test, debug
 │   │   └── DEPLOY.md              ← deploy to devnet/mainnet via Docker
-│   ├── relayer/                   ← off-chain crank (stub)
-│   │   └── README.md              ← purpose, modules, current state
+│   ├── relayer/                   ← durable CLOB and off-chain crank
+│   │   ├── README.md              ← purpose, runtime modes, current state
+│   │   ├── ARCHITECTURE.md        ← application/domain/infrastructure boundaries
+│   │   ├── API.md                 ← WebSocket, CLOB, and test-control protocol
+│   │   ├── STREAMS.md             ← TxLINE auth, SSE parsing, reconnect behavior
+│   │   ├── TRIGGERS.md            ← event and timeout market rules
+│   │   ├── SETTLEMENT.md          ← fill recovery and proof resolution
+│   │   └── BUILD.md               ← Docker build, run, and diagnostics
 │   └── frontend/                  ← Next.js UI (stub)
 │       └── README.md              ← live trading components and runtime state
 ├── integration/                   ← cross-service docs
@@ -99,15 +105,10 @@ All docs carry YAML frontmatter (`id`, `type`, `service`, `depends_on`, `related
 ./scripts/build.sh [all|contracts|frontend|relayer] [dev|prod]  # Docker build
 ./scripts/deploy.sh [devnet|mainnet] [priority_fee]              # Docker deploy
 
-# Anchor
-anchor build                          # Build program
-anchor deploy --provider.cluster devnet  # Deploy to devnet
-anchor test                           # Run tests
-
-# Relayer
-cd relayer && npx ts-node src/scripts/cpi-spike.ts  # Run CPI spike test
-cd relayer && npx ts-node src/scripts/verify-tokens.ts  # Check token mints
-
-# Frontend
-cd frontend && npm run dev              # Dev server
+# Run services through Docker wrappers
+./scripts/run.sh contracts             # Contracts diagnostics container
+./scripts/run.sh relayer               # Full relayer runtime on :8080
+./scripts/run.sh frontend              # Frontend on :3000
+./scripts/run.sh all -d                # All services, detached
+./scripts/run.sh test-runner           # JSON-wallet CLOB smoke runner
 ```

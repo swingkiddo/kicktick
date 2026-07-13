@@ -34,6 +34,7 @@ addresses are not defined by the current project configuration.
 | `Market` | `market`, fixture ID as signed i64 LE, market type byte, market sequence as u64 LE | Tradable market identity |
 | `MarketVault` | `market_vault`, Market PDA | Market collateral and payouts |
 | `Position` | `position`, Market PDA, owner | User shares for one market |
+| `OrderAccount` | `order`, owner, nonce as u64 LE | Wallet order terms and remaining reserve |
 
 ## Market types and status
 
@@ -45,6 +46,12 @@ PenaltyShootoutShot, PenaltyShot, VARCheck
 
 MarketStatus:
 Open, Locked, ResolvedPending, Resolved, Voided
+
+OrderSide:
+Buy, Sell
+
+OrderStatus:
+Open, Partial, Filled, Cancelled, Expired
 ```
 
 The first, third, fifth, and eighth market types are ternary; the other market

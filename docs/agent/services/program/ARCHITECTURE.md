@@ -130,7 +130,7 @@ Position
 ```
 
 One Position exists per wallet and market. The position stores outcome shares,
-not a direct YES/NO bet amount.
+not a direct YES/NO collateral amount.
 
 ## Order PDA
 
@@ -148,7 +148,7 @@ OrderAccount
 ├── reserved_collateral: u64
 ├── nonce: u64
 ├── expires_at: i64
-├── status: Open | Partial | Filled
+├── status: Open | Partial | Filled | Cancelled | Expired
 └── bump: u8
 ```
 
@@ -156,6 +156,13 @@ BUY orders reserve `ceil(quantity × price_bps / 10_000)` USDC base units.
 `reserved_collateral` is consumed exactly as fills settle and any remainder is
 released on a full fill, cancellation, or expiry. SELL orders reserve shares in
 `Position.locked_shares`; locked shares cannot be transferred or merged.
+
+The owner creates and may cancel an Order PDA. The configured relayer may
+expire it after `expires_at` or cancel it after the market leaves `Open`.
+Cancellation and expiry release the exact remaining BUY reserve or SELL locked
+shares before the Order PDA is closed. Owner cancellation and post-lock cleanup
+return account rent to the owner; relayer expiry closes the account to the
+relayer.
 
 The addition of `reserved_collateral` expanded the serialized account to 118
 bytes including the Anchor discriminator. This is a breaking account-layout

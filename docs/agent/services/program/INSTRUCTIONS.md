@@ -73,6 +73,41 @@ Binary-only inverse of `split` while the market is Open. It burns equal,
 unlocked YES and NO shares and returns the same number of USDC base units from
 MarketVault to the user's available collateral.
 
+## Order lifecycle
+
+### `create_order`
+
+Creates `OrderAccount` at `['order', owner, nonce]` for a binary Open market.
+The owner supplies side, outcome index, price, quantity, nonce, and expiry. The
+expiry must be in the future and no later than the market deadline; price must
+be 100..=9,900 bps on a 100-bps tick, and quantity must be at least 100 base
+units.
+
+A BUY moves `ceil(quantity × price_bps / 10_000)` from available balance into
+the exact `reserved_collateral` stored on the order. A SELL locks the requested
+outcome shares in the owner's Position. The Position is initialized when
+needed, and the market's open-position count is incremented only for a new
+Position.
+
+### `cancel_order`
+
+Owner-only cancellation for an Open or Partial order. It returns the exact
+remaining BUY reserve to available balance or unlocks the remaining SELL
+shares, marks the order Cancelled, and closes the Order PDA to the owner.
+
+### `expire_order`
+
+Relayer-only cleanup after `order.expires_at`. It releases remaining reserves
+or locked shares, marks the order Expired, and closes the Order PDA to the
+relayer. The durable relayer cleanup queue invokes this instruction; local
+order state must not become terminal before chain confirmation.
+
+### `cancel_order_after_lock`
+
+Relayer-only cleanup once the market is Locked, ResolvedPending, Resolved, or
+Voided. It releases the same remaining resources as owner cancellation and
+closes the Order PDA to the original owner.
+
 ## Market lifecycle
 
 ### `init_market`
@@ -184,6 +219,10 @@ handled. It closes the MarketVault to the selected recipient.
 | `init_user` | User | Creates collateral accounts |
 | `deposit` / `withdraw` | User | Moves available USDC |
 | `split` / `merge` | User | Converts USDC to/from a binary complete set |
+| `create_order` | User | Reserves BUY collateral or SELL shares |
+| `cancel_order` | User | Releases and closes an active order |
+| `expire_order` | Config relayer | Releases an expired order and closes it to relayer |
+| `cancel_order_after_lock` | Config relayer | Releases a post-lock order and closes it to owner |
 | `init_market` | Config admin | Creates Open Market and vault |
 | `lock_market` | Authority | Freezes market |
 | `resolve_market_with_proof` | Resolver | CPI oracle resolution |

@@ -24,9 +24,18 @@ The current CLOB intake and settlement path is binary-only. It decodes the
 reserve-aware 118-byte Order PDA layout, reports ceil-based BUY reserves, and
 submits complementary complete-set orders in YES/NO outcome order.
 
-For isolated development, `TEST_MODE=true` or `CLOB_ONLY_MODE=true` starts the
-CLOB/WebSocket paths without TxLINE ingestion or production recovery jobs.
-`CLOB_ONLY_MODE=false` overrides test mode and forces full startup.
+The current runtime always starts the full recovery, TxLINE authentication,
+fixture ingestion, SSE, lifecycle, cleanup, and scheduler path. `TEST_MODE=true`
+adds the synthetic development control plane without disabling those services.
+`NODE_ENV=development` also enables that control plane. `CLOB_ONLY_MODE` is
+retained only as an unused compatibility setting and is not consulted by the
+current runtime.
+
+The test control plane accepts commands without a test-admin signature when
+`TEST_AUTH_REQUIRED=false`, which is the local development default. Set
+`TEST_AUTH_REQUIRED=true` before exposing a development relayer beyond a
+trusted local environment; the control plane must never be enabled in
+production.
 
 ## Operational status
 
@@ -34,12 +43,13 @@ The current implementation is a devnet/MVP relayer. It supports the complete eve
 
 The following hardening work remains before treating it as production-safe:
 
-- validate on-chain user collateral and positions before accepting or matching orders;
+- independently re-read UserAccount and Position state beyond the confirmed
+  `create_order` transaction and validated Order PDA when additional pre-trade
+  policy checks are introduced;
 - reconcile ambiguous Solana transactions using signature status and on-chain `fillSequence` before retrying or releasing reservations;
 - retry failed `open_market` actions when the on-chain account was never created;
 - persist and validate the exact upstream proof sequence for timeout/reconnect settlement;
 - make test reset wait for in-flight asynchronous actions.
 
-The remaining reliability work is tracked in the repository working tree and
-should be implemented incrementally after the current devnet/UI smoke flow is
-verified.
+These reliability items should be implemented incrementally after the current
+devnet/UI smoke flow is verified.

@@ -27,13 +27,16 @@ for interactive diagnostics when needed.
 
 ### Update Program ID
 
-After build, update program ID in 4 places:
+When rotating the program keypair, keep the declared and client-facing program
+ID aligned in these locations:
 
 | File | Field |
-|------|------|-------|
-| `programs/kicktick/src/lib.rs` | `declare_id!("...")` |
-| `relayer/config/constants.json` or relayer `.env` | `kicktickProgramId` / `KICKTICK_PROGRAM_ID` |
-| `Anchor.toml` | `[programs.localnet]` and `[programs.devnet]` |
+|------|-------|
+| `kicktick/programs/kicktick/src/lib.rs` | `declare_id!("...")` |
+| `kicktick/Anchor.toml` | `[programs.localnet]` and `[programs.devnet]` |
+| `relayer/config/constants.json` | `kicktickProgramId` default |
+| relayer environment | `KICKTICK_PROGRAM_ID`, when overridden |
+| frontend environment / `scripts/run.sh` | `VITE_KICKTICK_PROGRAM_ID` |
 
 ---
 
@@ -61,7 +64,9 @@ npm test
 - `tests/market.ts` covers market initialization, locking, off-chain resolution,
   confirmation, voiding, and lifecycle errors.
 - `tests/standalone-validator.ts` covers 20-wallet deposits, complete-set
-  binary settlement, share trades, positions, volume, and fill sequence.
+  binary settlement, share trades, positions, volume, and fill sequence. Run it
+  explicitly with `npm run test:standalone` inside the contracts container; it
+  is excluded from the default `npm test` command.
 
 ### Adding Tests for New Market Types
 
@@ -88,11 +93,20 @@ npm test
 | — | `InvalidFillSequence` | fill is not next in sequence | Reconcile on-chain market state |
 | 6007 | `ZeroAmount` | amount = 0 | Pass amount > 0 |
 | — | `InvalidOutcomeIndex` | outcome index is outside market range | Use `0..outcome_count` |
+| — | `BinaryMarketOnly` | order, split, merge, or complete set targets a ternary market | Use a binary YES/NO market |
+| — | `InvalidPrice` | price is outside 100..=9,900 bps or off tick | Use a 100-bps price tick |
+| — | `QuantityTooSmall` | order quantity is below 100 base units | Increase the share quantity |
+| — | `OrderNotOpen` | cancellation/cleanup targets a terminal order | Reconcile the Order PDA and local state |
+| — | `OrderNotExpired` | relayer expiry ran before `expires_at` | Retry after the order deadline |
 | — | `AlreadyClaimed` | position was already claimed | Check `position.claimed` |
 | — | `NotWinner` | cleanup called for a winning position | Claim winners; clean losers |
 | — | `InsufficientBalance` | user collateral is unavailable | Deposit or wait for a release |
+| — | `InsufficientShares` | SELL or merge exceeds unlocked shares | Reduce quantity or cancel locking orders |
 
 ### Debug Commands
+
+Run Solana CLI diagnostics inside the contracts container started by
+`./scripts/run.sh contracts`:
 
 ```bash
 # Check account data

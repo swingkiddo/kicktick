@@ -56,14 +56,12 @@ Get devnet SOL: `solana airdrop 2 --url devnet`
 
 ---
 
-## Idempotency Checks
+## Existing deployment behavior
 
-The deploy script performs two checks to avoid redundant operations:
-
-| Check | Location | Behavior |
-|-------|----------|----------|
-| Program exists | `solana program show <ID>` | Skip deploy if already exists |
-| Config PDA initialized | `init-kicktick.ts:60-64` | Skip init if PDA exists |
+The deploy script checks whether the program account exists to report whether
+the operation is a first deploy or an update. It still executes
+`solana program deploy` in both cases. Config initialization is idempotent and
+is skipped by `init-kicktick.ts` when the Config PDA already exists.
 
 ---
 
@@ -95,15 +93,16 @@ After deploy:
 
 ## Update Program ID
 
-After first deploy, update program ID in 4 places:
+After deploying with a new program keypair, update every declared and
+client-facing program ID:
 
-| File | Line | Field |
-|------|------|-------|
-| `programs/kicktick/src/lib.rs` | 8 | `declare_id!("...")` |
-| `programs/kicktick/src/lib.rs` | `declare_id!("...")` |
+| File | Field |
+|------|-------|
+| `kicktick/programs/kicktick/src/lib.rs` | `declare_id!("...")` |
+| `kicktick/Anchor.toml` | localnet and devnet program entries |
 | `relayer/config/constants.json` | `kicktickProgramId` |
 | `relayer/.env` | `KICKTICK_PROGRAM_ID` override, if present |
-| `Anchor.toml` | `[programs.localnet]` and `[programs.devnet]` |
+| frontend environment / `scripts/run.sh` | `VITE_KICKTICK_PROGRAM_ID` |
 
 ---
 

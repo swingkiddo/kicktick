@@ -31,6 +31,7 @@ vaults are SPL token accounts.
 | Match_ | `["match", fixture_id]` | Match metadata and lifecycle compatibility fields |
 | Market | `["market", fixture_id, market_type, market_seq]` | Tradable market state, expiry, resolution |
 | Position | `["position", market, owner]` | User position per market |
+| OrderAccount | `["order", owner, nonce]` | Wallet order terms and exact remaining reserve |
 | UserAccount / UserVault | `["user", owner]` / `["user_vault", owner]` | Wallet collateral bookkeeping and custody |
 | MarketVault | `["market_vault", market]` | Market collateral and complete-set funds |
 
@@ -44,6 +45,8 @@ Full details: `program/ARCHITECTURE.md`
 | `init_match` | Create fixture metadata and match vault |
 | `init_user` / `deposit` / `withdraw` | Manage user collateral |
 | `init_market` / `lock_market` | Create and freeze a market when its outcome is known or its deadline expires |
+| `create_order` / `cancel_order` | Reserve collateral or shares for a wallet order and release them on owner cancellation |
+| `expire_order` / `cancel_order_after_lock` | Relayer cleanup of expired or post-lock orders |
 | `resolve_market_with_proof` | Resolve through TxOracle CPI |
 | `resolve_market_offchain` | Resolve trusted off-chain market types |
 | `confirm_market` / `void_market` | Finalize or void a market |
@@ -82,9 +85,9 @@ Full details: `program/ARCHITECTURE.md`
 ## File Structure
 
 ```
-programs/kicktick/src/
+kicktick/programs/kicktick/src/
 ├── lib.rs — module router
-├── constants.rs (48 lines) — seeds, limits, StatKeys, CPI discriminator
+├── constants.rs — seeds, limits, StatKeys, CPI discriminator
 ├── errors.rs — error codes
 ├── state/
 │   ├── config.rs — Config PDA
@@ -93,12 +96,14 @@ programs/kicktick/src/
 │   ├── position.rs — Position PDA with outcome shares
 │   ├── user_account.rs — UserAccount PDA
 └── instructions/
-    ├── mod.rs (22 lines) — re-exports
-    ├── init_config.rs (32 lines)
+    ├── mod.rs — re-exports
+    ├── init_config.rs
     ├── init_match.rs
     ├── market.rs — market lifecycle and relayer authority
     ├── user.rs — user account, deposit, withdraw
+    ├── order.rs — wallet order reservation, cancellation, and cleanup
     ├── trade.rs — complete-set and share-trade settlement
+    ├── ctf.rs — public binary split and merge
     ├── oracle.rs — proof settlement
     ├── redeem.rs — claim, cleanup, vault close
     └── token.rs — SPL token transfers and price-cost math
@@ -108,8 +113,9 @@ programs/kicktick/src/
 
 - Test files: `kicktick/tests/kicktick.ts`, `kicktick/tests/market.ts`,
   `kicktick/tests/standalone-validator.ts`
-- Flows cover Config/user collateral, market lifecycle, CLOB complete-set
-  settlement, share trades, voiding, cleanup, and error conditions.
+- Flows cover Config/user collateral, market lifecycle, order reservation and
+  release, CLOB complete-set settlement, share trades, split/merge, voiding,
+  cleanup, and error conditions.
 - Run through the repository's Docker workflow; do not use host-side Anchor
   commands as the operational path.
 

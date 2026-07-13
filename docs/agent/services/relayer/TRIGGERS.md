@@ -184,7 +184,7 @@ Cleaned up on `FinishedAfterPenaltyShootout` (13).
 
 ## Timeout Handling
 
-Polled every 5s via `setInterval` in `index.ts`.
+Polled every 5 seconds by `RelayerScheduler` in `src/app/scheduler.ts`.
 
 ```typescript
 checkTimeouts(fixtureId):

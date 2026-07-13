@@ -50,6 +50,7 @@ TXLINE_JWT=
 TXLINE_API_TOKEN=
 TXLINE_API_HOST=https://txline-dev.txodds.com
 SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_RPC_MIN_INTERVAL_MS=750
 SOLANA_KEYPAIR_PATH=~/.config/solana/id.json
 KICKTICK_PROGRAM_ID=LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND
 TXORACLE_PROGRAM_ID=6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J
@@ -57,16 +58,21 @@ COLLATERAL_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
 WS_PORT=8080
 CLOB_DB_PATH=/app/data/kicktick-clob.sqlite
 TEST_MODE=false
-CLOB_ONLY_MODE=
+TEST_AUTH_REQUIRED=false
 ```
 
 The private key may also be supplied as `SOLANA_PRIVATE_KEY` in hex. Never
 commit either key form.
 
-`TEST_MODE=true` enables the development control plane and, unless explicitly
-overridden, CLOB-only startup. Set `CLOB_ONLY_MODE=false` to exercise full
-TxLINE authentication, ingestion, recovery, and scheduled jobs while retaining
-development test controls.
+`TEST_MODE=true` enables the development control plane. `NODE_ENV=development`
+enables it as well. The current runtime always performs full TxLINE
+authentication, ingestion, recovery, and scheduled jobs; `CLOB_ONLY_MODE` is
+not currently active. `TEST_AUTH_REQUIRED=false` bypasses the test-admin
+signature gate and is safe only for trusted local development.
+
+`SOLANA_RPC_MIN_INTERVAL_MS` throttles all relayer HTTP RPC requests through a
+shared fetch adapter. Increase it when the public devnet endpoint responds with
+rate-limit errors.
 
 ## IDL flow
 
@@ -99,7 +105,7 @@ devnet TxL and USDC collateral mint accounts. Neither script is part of normal s
 
 ## Wallet order runner
 
-The repository runner mounts `kicktick/scripts/wallets` read-only and sets
+The repository runner mounts the root `wallets/` directory read-only and sets
 `TEST_WALLETS_DIR` inside the container:
 
 ```bash
