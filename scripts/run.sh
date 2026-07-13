@@ -29,10 +29,15 @@ run_frontend() {
   ensure_image "$image" "frontend"
 
   echo "→ Starting $name ($STAGE)..."
+  local wallet_mount=""
+  [ "$STAGE" = "dev" ] && wallet_mount="-v $PROJECT_DIR/wallets:/app/public/wallets:ro"
   docker run --rm $DETACH \
     --name "$name" \
     -v "$PROJECT_DIR/frontend:/app" \
+    $wallet_mount \
     -v /app/node_modules \
+    -e VITE_KICKTICK_PROGRAM_ID=LLQr8aHZrYMCGyncFVK1hnxXbPCFKxSrANuEBguCgND \
+    -e VITE_SOLANA_RPC_URL=https://api.devnet.solana.com \
     -p 3000:3000 \
     "$image"
 }
@@ -71,6 +76,12 @@ run_relayer() {
   local env_file="$PROJECT_DIR/relayer/.env"
   local env_opt=""
   [ -f "$env_file" ] && env_opt="--env-file $env_file"
+  local node_env="production"
+  local test_mode="false"
+  if [ "$STAGE" = "dev" ]; then
+    node_env="development"
+    test_mode="true"
+  fi
 
   # The CLOB's SQLite store must outlive a disposable container. An explicitly
   # configured CLOB_DB_PATH still wins, but defaults inside the mounted data dir.
@@ -96,6 +107,8 @@ run_relayer() {
     docker run --rm -d \
       --name "$name" \
       $env_opt \
+      -e NODE_ENV="$node_env" \
+      -e TEST_MODE="$test_mode" \
       $db_env \
       -v "$PROJECT_DIR/relayer:/app" \
       -v /app/node_modules \
@@ -112,6 +125,8 @@ run_relayer() {
     docker run --rm \
       --name "$name" \
       $env_opt \
+      -e NODE_ENV="$node_env" \
+      -e TEST_MODE="$test_mode" \
       $db_env \
       -v "$PROJECT_DIR/relayer:/app" \
       -v /app/node_modules \
@@ -121,6 +136,22 @@ run_relayer() {
       -p 8080:8080 \
       "$image" 2>&1 | tee "$log_file"
   fi
+}
+
+run_test_runner() {
+  local image="kicktick-relayer:${STAGE}"
+  ensure_image "$image" "relayer"
+  local env_file="$PROJECT_DIR/relayer/.env"
+  local env_opt=""
+  [ -f "$env_file" ] && env_opt="--env-file $env_file"
+  echo "→ Running test wallet runner ($STAGE)..."
+  docker run --rm \
+    $env_opt \
+    -e TEST_WALLETS_DIR=/app/test-wallets \
+    -v "$PROJECT_DIR/relayer:/app" \
+    -v /app/node_modules \
+    -v "$PROJECT_DIR/wallets:/app/test-wallets:ro" \
+    "$image" npm run test:wallets
 }
 
 stop_service() {
@@ -176,8 +207,11 @@ case "$SERVICE" in
   contracts)
     run_contracts
     ;;
+  test-runner)
+    run_test_runner
+    ;;
   *)
-    echo "Usage: $0 [all|frontend|relayer|contracts] [dev|prod] [-d]"
+    echo "Usage: $0 [all|frontend|relayer|contracts|test-runner] [dev|prod] [-d]"
     exit 1
     ;;
 esac

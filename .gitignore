@@ -47,3 +47,4 @@ relayer/data/
 frontend/public/idl/kicktick.json
 relayer/scripts
 kicktick/scripts/wallets/
+wallets
