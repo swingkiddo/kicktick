@@ -59,9 +59,10 @@ export async function runRelayer(): Promise<void> {
   const config = loadConfig();
   // MVP trading mode: keep the WebSocket/CLOB control plane available without
   // waiting for TxLINE, SSE, fixture reconciliation, or lifecycle recovery.
-  const clobOnlyMode = process.env.CLOB_ONLY_MODE === "false"
-    ? false
-    : config.testMode || process.env.CLOB_ONLY_MODE === "true";
+  // const clobOnlyMode = process.env.CLOB_ONLY_MODE === "false"
+  //   ? false
+  //   : config.testMode || process.env.CLOB_ONLY_MODE === "true";
+  const clobOnlyMode = false;
   const infrastructure = bootstrapInfrastructure(config);
   const { rpcConnection, wsServer, txlineClient, anchorClient, clobStore, matchingEngine, fillSettlement, orderCleanup, clobLifecycle, clobWsApi } = infrastructure;
 

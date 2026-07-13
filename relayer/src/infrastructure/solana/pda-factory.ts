@@ -1,12 +1,14 @@
 import { BN } from "@anchor-lang/core";
 import { PublicKey } from "@solana/web3.js";
 import { u64ToLeBytes } from "../../domain/ids";
-import type { MarketType } from "../../domain/markets";
+import { MarketType } from "../../domain/markets";
 
 const MARKET_TYPES: readonly MarketType[] = [
-  "NextGoalSide", "GoalInWindow", "NextCorner", "CornerInWindow",
-  "NextYellowCard", "YellowCardInWindow", "RedCardInMatch",
-  "PenaltyShootoutShot", "PenaltyShot", "VARCheck",
+  MarketType.NextGoalSide, MarketType.GoalInWindow,
+  MarketType.NextCorner, MarketType.CornerInWindow,
+  MarketType.NextYellowCard, MarketType.YellowCardInWindow,
+  MarketType.RedCardInMatch, MarketType.PenaltyShootoutShot,
+  MarketType.PenaltyShot, MarketType.VARCheck,
 ];
 
 export class PdaFactory {

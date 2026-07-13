@@ -135,12 +135,28 @@ export class TestController {
     const state = this.options.watcher.getFixtureState(data.fixtureId);
     if (!state) throw new Error(`unknown test fixture ${data.fixtureId}`);
     const action = data.action as SoccerAction;
-    const event: any = { action, participant: data.participant, seq: Date.now() };
+    const now = Date.now();
+    const event: any = {
+      action,
+      participant: data.participant,
+      metadata: {
+        fixtureId: data.fixtureId,
+        txLineSequence: now,
+        occurredAt: now,
+        gameState: state.currentPeriod,
+        sourceMessageId: `test:${data.fixtureId}:${now}`,
+      },
+    };
     if (action === SoccerAction.Status) event.statusId = data.statusId ?? StatusId.FirstHalf;
     if (action === SoccerAction.Goal) event.goalType = "Other";
     if (action === SoccerAction.PenaltyOutcome) event.outcome = data.outcome ?? "Scored";
     if (action === SoccerAction.Var) event.varType = "Other";
-    if (action === SoccerAction.VarEnd) event.outcome = data.outcome ?? "Stands";
+    if (action === SoccerAction.VarEnd) {
+      if (data.outcome !== "Overturned" && data.outcome !== "Stands") {
+        throw new Error("var_end test event requires outcome Overturned or Stands");
+      }
+      event.outcome = data.outcome;
+    }
     const next = this.options.watcher.processEvent(event, data.fixtureId);
     if (!next) throw new Error(`failed to process event for fixture ${data.fixtureId}`);
     this.broadcastMatch(next);
