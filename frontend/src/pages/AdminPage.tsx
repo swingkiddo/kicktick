@@ -4,6 +4,7 @@ import AdminDashboard from '@/admin/AdminDashboard';
 import AdminMatchDetail from '@/admin/AdminMatchDetail';
 import AdminFeedViewer from '@/admin/AdminFeedViewer';
 import AdminConfig from '@/admin/AdminConfig';
+import AdminTrading from '@/admin/AdminTrading';
 
 export default function AdminPage() {
   return (
@@ -14,6 +15,7 @@ export default function AdminPage() {
         <Route path="matches/:fixtureId" element={<AdminMatchDetail />} />
         <Route path="feed" element={<AdminFeedViewer />} />
         <Route path="config" element={<AdminConfig />} />
+        <Route path="trading" element={<AdminTrading />} />
       </Route>
     </Routes>
   );

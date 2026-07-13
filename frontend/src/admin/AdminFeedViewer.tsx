@@ -39,9 +39,9 @@ export default function AdminFeedViewer() {
             <div className="flex items-center gap-2 mb-1">
               <span className={`px-1.5 py-0.5 rounded text-[10px] ${
                 msg.type === 'error' || msg.type === 'error_log' ? 'bg-red-400/20 text-red-400' :
-                msg.type === 'round_opened' ? 'bg-blue-400/20 text-blue-400' :
-                msg.type === 'round_confirmed' ? 'bg-green-400/20 text-green-400' :
-                msg.type === 'round_settled' ? 'bg-yellow-400/20 text-yellow-400' :
+                msg.type === 'market_opened' ? 'bg-blue-400/20 text-blue-400' :
+                msg.type === 'market_confirmed' ? 'bg-green-400/20 text-green-400' :
+                msg.type === 'market_resolved' ? 'bg-yellow-400/20 text-yellow-400' :
                 'bg-gray-400/20 text-gray-400'
               }`}>{msg.type}</span>
             </div>

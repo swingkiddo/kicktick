@@ -19,6 +19,7 @@ export default function Header() {
           >
             Markets
           </a>
+          <a href="#portfolio" className="text-sm text-gray-400 hover:text-white transition">Portfolio</a>
           <Link to="/admin" className="text-sm text-gray-400 hover:text-white transition">
             Admin
           </Link>

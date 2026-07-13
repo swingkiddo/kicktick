@@ -5,6 +5,7 @@ const navItems = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: '📊' },
   { to: '/admin/feed', label: 'Live Feed', icon: '📡' },
   { to: '/admin/config', label: 'Config', icon: '⚙️' },
+  { to: '/admin/trading', label: 'Trading (dev)', icon: '🧪' },
 ];
 
 export default function AdminSidebar() {

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { CONFIG } from "@/lib/constants";
+import { createRpcConnection } from '@/lib/rpc';
 
 const RPC_URL = CONFIG.rpcUrl;
 const PROGRAM_ID = new PublicKey(CONFIG.kicktickProgramId);
@@ -27,7 +28,7 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
 
     async function check() {
       try {
-        const connection = new Connection(RPC_URL, "confirmed");
+        const connection = createRpcConnection(RPC_URL, "confirmed");
         const [configPda] = deriveConfigPda(PROGRAM_ID);
         console.log("configPda", configPda.toBase58());
 

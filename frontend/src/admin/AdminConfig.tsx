@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { CONFIG } from '@/lib/constants';
+import { createRpcConnection } from '@/lib/rpc';
 
 const RPC_URL = CONFIG.rpcUrl;
 const PROGRAM_ID = new PublicKey(CONFIG.kicktickProgramId);
@@ -11,9 +12,11 @@ function deriveConfigPda(programId: PublicKey): [PublicKey, number] {
 
 interface ConfigData {
   admin: string;
+  relayer: string;
   txoracleProgramId: string;
-  finalityDelay: number;
-  minLiquidity: number;
+  dailyScoresMerkleRoots: string;
+  finalityDelay: bigint;
+  minLiquidity: bigint;
 }
 
 export default function AdminConfig() {
@@ -24,17 +27,19 @@ export default function AdminConfig() {
     let cancelled = false;
     async function fetchConfig() {
       try {
-        const conn = new Connection(RPC_URL, "confirmed");
+        const conn = createRpcConnection(RPC_URL, "confirmed");
         const [configPda] = deriveConfigPda(PROGRAM_ID);
         const acc = await conn.getAccountInfo(configPda);
         if (!cancelled) {
           if (acc) {
             const data = acc.data;
             const admin = new PublicKey(data.slice(8, 40)).toBase58();
-            const txoracleProgramId = new PublicKey(data.slice(40, 72)).toBase58();
-            const finalityDelay = Number(data.readBigUInt64LE(72));
-            const minLiquidity = Number(data.readBigUInt64LE(80));
-            setConfig({ admin, txoracleProgramId, finalityDelay, minLiquidity });
+            const relayer = new PublicKey(data.slice(40, 72)).toBase58();
+            const txoracleProgramId = new PublicKey(data.slice(72, 104)).toBase58();
+            const dailyScoresMerkleRoots = new PublicKey(data.slice(104, 136)).toBase58();
+            const finalityDelay = data.readBigInt64LE(136);
+            const minLiquidity = data.readBigUInt64LE(144);
+            setConfig({ admin, relayer, txoracleProgramId, dailyScoresMerkleRoots, finalityDelay, minLiquidity });
           }
           setLoading(false);
         }
@@ -60,16 +65,24 @@ export default function AdminConfig() {
             <dd className="font-mono text-sm text-teal">{config.admin}</dd>
           </div>
           <div>
+            <dt className="text-xs text-gray-400 mb-1">Relayer</dt>
+            <dd className="font-mono text-sm text-teal">{config.relayer}</dd>
+          </div>
+          <div>
             <dt className="text-xs text-gray-400 mb-1">TxOracle Program ID</dt>
             <dd className="font-mono text-sm text-teal">{config.txoracleProgramId}</dd>
           </div>
           <div>
+            <dt className="text-xs text-gray-400 mb-1">daily_scores_merkle_roots</dt>
+            <dd className="font-mono text-sm text-teal">{config.dailyScoresMerkleRoots}</dd>
+          </div>
+          <div>
             <dt className="text-xs text-gray-400 mb-1">Finality Delay</dt>
-            <dd className="font-mono text-sm">{config.finalityDelay} seconds</dd>
+            <dd className="font-mono text-sm">{config.finalityDelay.toString()} seconds</dd>
           </div>
           <div>
             <dt className="text-xs text-gray-400 mb-1">Min Liquidity</dt>
-            <dd className="font-mono text-sm">{config.minLiquidity / 1e9} SOL</dd>
+            <dd className="font-mono text-sm">{Number(config.minLiquidity) / 1e9} SOL</dd>
           </div>
         </dl>
       </div>

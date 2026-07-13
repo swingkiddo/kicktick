@@ -105,7 +105,7 @@ export default function AdminDashboard() {
             <thead>
               <tr className="border-b border-white/5 text-left text-gray-400">
                 <th className="p-3">Fixture</th>
-                <th className="p-3">Round</th>
+                <th className="p-3">Market</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Tx Sig</th>
               </tr>
@@ -114,7 +114,7 @@ export default function AdminDashboard() {
               {recentTx.map((tx, i) => (
                 <tr key={i} className="border-b border-white/5 hover:bg-white/5">
                   <td className="p-3">{tx.data.fixtureId}</td>
-                  <td className="p-3">{tx.data.roundId}</td>
+                  <td className="p-3">{tx.data.marketSeq}</td>
                   <td className="p-3">
                     <span className={`px-2 py-0.5 rounded text-xs ${
                       tx.data.status === 'confirmed' ? 'bg-green-400/10 text-green-400' :

@@ -24,6 +24,8 @@ export function WalletContextProvider({ children }: { children: React.ReactNode 
   );
 
   return (
+    // wallet-adapter currently publishes React 18 component typings while this app uses React 19.
+    // @ts-expect-error compatibility with wallet-adapter's React 18 JSX declaration
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>

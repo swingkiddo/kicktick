@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Buffer } from 'buffer';
 import { useParams, Link } from 'react-router-dom';
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { CONFIG } from '@/lib/constants';
+import { createRpcConnection } from '@/lib/rpc';
 import { useWs, WsServerMessage } from './WebSocketProvider';
 
 const RPC_URL = CONFIG.rpcUrl;
@@ -17,17 +19,20 @@ function deriveMatchPda(fixtureId: number): [PublicKey, number] {
 export default function AdminMatchDetail() {
   const { fixtureId } = useParams<{ fixtureId: string }>();
   const fid = Number(fixtureId);
-  const { messages, subscribeMatch, unsubscribeMatch } = useWs();
+  const { messages, subscribeMatch, unsubscribeMatch, testAuthenticated, createTestMatch, createTestMarket, emitTestEvent, resetTest } = useWs();
   const { publicKey } = useWallet();
   const [matchData, setMatchData] = useState<{ fixtureId: number; address: string; exists: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showOpenRound, setShowOpenRound] = useState(false);
-  const [openRoundForm, setOpenRoundForm] = useState({
+  const [showOpenMarket, setShowOpenMarket] = useState(false);
+  const [openMarketForm, setOpenMarketForm] = useState({
     marketType: 'NextGoalSide',
-    roundId: 1,
+    marketSeq: 1,
     lockSeconds: 30,
     deadlineSeconds: 90,
   });
+  const [teams, setTeams] = useState({ homeTeam: 'Home FC', awayTeam: 'Away FC' });
+  const [eventAction, setEventAction] = useState('goal');
+  const [eventParticipant, setEventParticipant] = useState(1);
 
   useEffect(() => {
     if (!fid) return;
@@ -35,7 +40,7 @@ export default function AdminMatchDetail() {
 
     async function fetchMatch() {
       try {
-        const conn = new Connection(RPC_URL, "confirmed");
+        const conn = createRpcConnection(RPC_URL, "confirmed");
         const [matchPda] = deriveMatchPda(fid);
         const acc = await conn.getAccountInfo(matchPda);
         if (!cancelled) {
@@ -66,11 +71,11 @@ export default function AdminMatchDetail() {
     return msgs.length > 0 ? msgs[msgs.length - 1].data : null;
   }, [messages, fid]);
 
-  type RoundMsg = Extract<WsServerMessage, { type: 'round_opened' | 'round_settled' | 'round_confirmed' | 'round_cancelled' }>;
-  const roundEvents = useMemo(() =>
-    messages.filter((m): m is RoundMsg =>
-      (m.type === 'round_opened' || m.type === 'round_settled' ||
-       m.type === 'round_confirmed' || m.type === 'round_cancelled') &&
+  type MarketMsg = Extract<WsServerMessage, { type: 'market_opened' | 'market_resolved' | 'market_confirmed' | 'market_cancelled' }>;
+  const marketEvents = useMemo(() =>
+    messages.filter((m): m is MarketMsg =>
+      (m.type === 'market_opened' || m.type === 'market_resolved' ||
+       m.type === 'market_confirmed' || m.type === 'market_cancelled') &&
       m.data.fixtureId === fid
     ),
   [messages, fid]);
@@ -126,37 +131,37 @@ export default function AdminMatchDetail() {
       )}
 
       <section className="mb-8">
-        <h2 className="text-lg font-semibold mb-3">Round Activity</h2>
+        <h2 className="text-lg font-semibold mb-3">Market Activity</h2>
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/5 text-left text-gray-400">
                 <th className="p-3">Event</th>
-                <th className="p-3">Round ID</th>
+                <th className="p-3">Market Seq</th>
                 <th className="p-3">Market Type</th>
                 <th className="p-3">Outcome/Tx</th>
               </tr>
             </thead>
             <tbody>
-              {roundEvents.slice(-30).reverse().map((e, i) => (
+              {marketEvents.slice(-30).reverse().map((e, i) => (
                 <tr key={i} className="border-b border-white/5 hover:bg-white/5">
                   <td className="p-3">
                     <span className={`px-2 py-0.5 rounded text-xs ${
-                      e.type === 'round_opened' ? 'bg-blue-400/10 text-blue-400' :
-                      e.type === 'round_settled' ? 'bg-yellow-400/10 text-yellow-400' :
-                      e.type === 'round_confirmed' ? 'bg-green-400/10 text-green-400' :
-                      e.type === 'round_cancelled' ? 'bg-red-400/10 text-red-400' : ''
+                      e.type === 'market_opened' ? 'bg-blue-400/10 text-blue-400' :
+                      e.type === 'market_resolved' ? 'bg-yellow-400/10 text-yellow-400' :
+                      e.type === 'market_confirmed' ? 'bg-green-400/10 text-green-400' :
+                      e.type === 'market_cancelled' ? 'bg-red-400/10 text-red-400' : ''
                     }`}>{e.type}</span>
                   </td>
-                  <td className="p-3 font-mono">{e.data.roundId}</td>
+                  <td className="p-3 font-mono">{e.data.marketSeq}</td>
                   <td className="p-3">{(e.data as any).marketType || '-'}</td>
                   <td className="p-3 font-mono text-xs text-gray-400">
                     {(e.data as any).outcome || (e.data as any).txSig?.slice(0, 16) || '-'}
                   </td>
                 </tr>
               ))}
-              {roundEvents.length === 0 && (
-                <tr><td colSpan={4} className="p-3 text-gray-500 text-center">No round activity yet</td></tr>
+              {marketEvents.length === 0 && (
+                <tr><td colSpan={4} className="p-3 text-gray-500 text-center">No market activity yet</td></tr>
               )}
             </tbody>
           </table>
@@ -186,7 +191,7 @@ export default function AdminMatchDetail() {
               <thead>
                 <tr className="border-b border-white/5 text-left text-gray-400">
                   <th className="p-3">Action</th>
-                  <th className="p-3">Round</th>
+                  <th className="p-3">Market</th>
                   <th className="p-3">Status</th>
                   <th className="p-3">Tx Sig</th>
                 </tr>
@@ -195,7 +200,7 @@ export default function AdminMatchDetail() {
                 {txStatuses.slice().reverse().map((tx, i) => (
                   <tr key={i} className="border-b border-white/5">
                     <td className="p-3 font-mono text-xs">{(tx.data as any).action || '-'}</td>
-                    <td className="p-3">{tx.data.roundId}</td>
+                    <td className="p-3">{tx.data.marketSeq}</td>
                     <td className="p-3">{tx.data.status}</td>
                     <td className="p-3 font-mono text-xs text-gray-400">
                       {tx.data.txSig ? tx.data.txSig.slice(0, 16) + '...' : '-'}
@@ -213,35 +218,59 @@ export default function AdminMatchDetail() {
         <div className="card p-4">
           <p className="text-sm text-gray-400 mb-3">
             Connected as: <span className="font-mono text-teal">{publicKey?.toBase58().slice(0, 8)}...</span>
+            <span className={`ml-3 ${testAuthenticated ? 'text-green-400' : 'text-yellow-300'}`}>test control: {testAuthenticated ? 'ready' : 'not authenticated'}</span>
           </p>
           <div className="flex gap-3">
+            <button className="btn-secondary text-sm" disabled={!testAuthenticated} onClick={() => createTestMatch({ fixtureId: fid, ...teams })}>
+              Create Test Match
+            </button>
             <button
               className="btn-primary text-sm"
-              onClick={() => setShowOpenRound(true)}
+              disabled={!testAuthenticated}
+              onClick={() => setShowOpenMarket(true)}
             >
-              + Open Round
+              + Open Market
             </button>
             <button
               className="btn-secondary text-sm"
-              onClick={() => alert('Cancel round (Task 9)')}
+              disabled
+              title="Market cancellation is not supported by the dev control API"
             >
-              Cancel Round
+              Cancel Market (unsupported)
             </button>
+            <button className="btn-secondary text-sm" disabled={!testAuthenticated} onClick={() => resetTest()}>Reset Test CLOB</button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <input className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" value={teams.homeTeam} onChange={e => setTeams(t => ({ ...t, homeTeam: e.target.value }))} placeholder="Home team" />
+            <input className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" value={teams.awayTeam} onChange={e => setTeams(t => ({ ...t, awayTeam: e.target.value }))} placeholder="Away team" />
+          </div>
+          <div className="mt-5 border-t border-white/10 pt-4">
+            <h3 className="font-semibold mb-3">Test event</h3>
+            <div className="flex flex-wrap gap-2">
+              <select className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" value={eventAction} onChange={e => setEventAction(e.target.value)}>
+                {['goal', 'corner', 'yellow_card', 'red_card', 'penalty', 'var', 'status'].map(action => <option key={action} value={action}>{action}</option>)}
+              </select>
+              <select className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" value={eventParticipant} onChange={e => setEventParticipant(Number(e.target.value))}>
+                <option value={1}>Home</option><option value={2}>Away</option>
+              </select>
+              <button className="btn-primary text-sm" disabled={!testAuthenticated} onClick={() => emitTestEvent({ fixtureId: fid, action: eventAction, participant: eventParticipant })}>Emit event</button>
+              {eventAction === 'status' && <button className="btn-secondary text-sm" disabled={!testAuthenticated} onClick={() => emitTestEvent({ fixtureId: fid, action: 'status', statusId: 5 })}>Full time</button>}
+            </div>
           </div>
         </div>
       </section>
 
-      {showOpenRound && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowOpenRound(false)}>
+      {showOpenMarket && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowOpenMarket(false)}>
           <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">Open Round</h3>
+            <h3 className="text-lg font-semibold mb-4">Open Market</h3>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-400 block mb-1">Market Type</label>
                 <select
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                  value={openRoundForm.marketType}
-                  onChange={e => setOpenRoundForm(f => ({ ...f, marketType: e.target.value }))}
+                  value={openMarketForm.marketType}
+                  onChange={e => setOpenMarketForm(f => ({ ...f, marketType: e.target.value }))}
                 >
                   {['NextGoalSide', 'GoalInWindow', 'NextCorner', 'CornerInWindow', 'NextYellowCard', 'YellowCardInWindow', 'RedCardInMatch', 'PenaltyShootoutShot', 'PenaltyShot', 'VARCheck'].map(t => (
                     <option key={t} value={t}>{t}</option>
@@ -249,31 +278,31 @@ export default function AdminMatchDetail() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-400 block mb-1">Round ID</label>
+                <label className="text-xs text-gray-400 block mb-1">Market Seq</label>
                 <input type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                  value={openRoundForm.roundId}
-                  onChange={e => setOpenRoundForm(f => ({ ...f, roundId: Number(e.target.value) }))} />
+                  value={openMarketForm.marketSeq}
+                  onChange={e => setOpenMarketForm(f => ({ ...f, marketSeq: Number(e.target.value) }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-400 block mb-1">Lock (s)</label>
                   <input type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                    value={openRoundForm.lockSeconds}
-                    onChange={e => setOpenRoundForm(f => ({ ...f, lockSeconds: Number(e.target.value) }))} />
+                    value={openMarketForm.lockSeconds}
+                    onChange={e => setOpenMarketForm(f => ({ ...f, lockSeconds: Number(e.target.value) }))} />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 block mb-1">Deadline (s)</label>
                   <input type="number" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                    value={openRoundForm.deadlineSeconds}
-                    onChange={e => setOpenRoundForm(f => ({ ...f, deadlineSeconds: Number(e.target.value) }))} />
+                    value={openMarketForm.deadlineSeconds}
+                    onChange={e => setOpenMarketForm(f => ({ ...f, deadlineSeconds: Number(e.target.value) }))} />
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button className="btn-primary text-sm flex-1" onClick={() => {
-                  alert(`TODO: call openRound(fixture=${fid}, marketType=${openRoundForm.marketType}, roundId=${openRoundForm.roundId})`);
-                  setShowOpenRound(false);
-                }}>Open Round</button>
-                <button className="btn-secondary text-sm" onClick={() => setShowOpenRound(false)}>Cancel</button>
+                  createTestMarket({ fixtureId: fid, marketType: openMarketForm.marketType, marketSeq: openMarketForm.marketSeq, deadlineSeconds: openMarketForm.deadlineSeconds });
+                  setShowOpenMarket(false);
+                }}>Open Market</button>
+                <button className="btn-secondary text-sm" onClick={() => setShowOpenMarket(false)}>Cancel</button>
               </div>
             </div>
           </div>
