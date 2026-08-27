@@ -1,153 +1,128 @@
-# KickTick: Sub-Minute Micro Prediction Markets on Solana
+# KickTick — Sub-Minute Micro Prediction Markets on Solana
 
-Create and settle prediction markets in **under 60 seconds** using live TxODDS odds data + on-chain Merkle proof settlement.
-
-**Market types:**
-- `odds_spike` — Will odds move >X% in the next N seconds?
-- `next_goal` — Which team scores next?
-- `next_card` — Card in next 5 minutes?
-- `over_under_corners` — Corners in next N minutes?
-- `match_result` — Short-format winner
-
-**Key Features**
-- TxODDS oracle integration (stable de-margined odds)
-- Merkle proof validation against `txoracle` program
-- Fast settlement on Solana
-- Sub-minute market lifecycles (15s – 5min)
-- PDA vaults + on-chain position tracking
+Settle prediction markets in under 60 seconds. Built for the Superteam World Cup
+hackathon (Prediction Markets & Settlement track, $18K USDT).
 
 ## Architecture
 
 ```
-+------------------------------------------------------------------+
-|                     FRONTEND (Next.js)                           |
-|  +------------------+  +------------------+                      |
-|  |   KickTick UI    |  |   Live Odds Feed |                      |
-|  +--------+---------+  +--------+---------+                      |
-+-----------+---------------------+--------------------------------+
-            |                     |
-            v                     v
-+------------------------------------------------------------------+
-|                   SDK / CLIENT (TypeScript)                      |
-|  +------------------+  +------------------+                      |
-|  | KickTickManager  |  |  TxOddsClient    |                      |
-|  | (create/bet/settle) |  + Merkle proofs  |                     |
-|  +------------------+  +------------------+                      |
-+-----------+---------------------+--------------------------------+
-            |                                              
-            v
-+------------------------------------------------------------------+
-|                    SOLANA (Anchor)                               |
-|                                                                  |
-|  kicktick program                                                |
-|  - create_market                                                 |
-|  - place_bet                                                     |
-|  - settle_market (TxODDS + proof)                                |
-|  - claim_winnings                                                |
-|  - cancel / refund                                               |
-|                                                                  |
-+------------------------------------------------------------------+
-                             |
-                             v
-+------------------------------------------------------------------+
-|                  TxODDS ORACLE (txoracle program)                |
-|                                                                  |
-|   - Merkle roots published on-chain                              |
-|   - Cryptographic proof validation for settlement                |
-|   - Live odds + scores via SSE                                   |
-|   - Free World Cup tier                                          |
-|                                                                  |
-+------------------------------------------------------------------+
+┌──────────┐     ┌──────────┐     ┌──────────┐
+│  Safari  │────▶│  Relayer │────▶│  Solana  │
+│  (React) │     │  (Node)  │     │ (Anchor) │
+│  :5173   │◀────│  :3001   │◀────│  :8899   │
+└──────────┘     └──────────┘     └──────────┘
+     │                                │
+     └──────── SDK (client) ──────────┘
 ```
+
+- **Program**: Anchor on Solana — `initMatch`, `openRound`, `placeBet`, `settleMarket`
+- **Relayer**: TypeScript — TxODDS oracle integration, 30 unit tests
+- **Frontend**: React + Vite + Solana wallet adapter
+- **SDK**: Browser-compatible client with Web Crypto (no Node.js deps)
 
 ## Quick Start
 
+### Prerequisites
+
+- Solana CLI 4.1.1+ (matching platform-tools v1.54)
+- Rust + Anchor CLI 0.31+
+- Node.js 18+
+
+### 1. Start Local Validator
+
 ```bash
-# 1. Clone and setup
-git clone https://github.com/Kubo-cmd/kicktick.git
-cd kicktick
-./setup-local.sh
-
-# 2. Configure wallet (devnet)
-solana-keygen new --outfile ~/.config/solana/id.json
-solana airdrop 2
-
-# 3. (Optional) Deploy program
-./deploy.sh devnet
-
-# 4. Start the frontend
-cd frontend
-npm run dev
+solana-test-validator \
+  --ledger /tmp/kicktick-ledger \
+  --dynamic-port-range 18000-18200 \
+  --gossip-port 18001
 ```
 
-Open http://localhost:3000 — create markets, place bets (demo), watch live odds.
+### 2. Build & Deploy Program
 
-## TxODDS Integration
+```bash
+# Build with v3 arch for local validator compatibility
+cargo build-sbf --arch v3
 
-| Feature         | Usage                              |
-|-----------------|------------------------------------|
-| Auth            | Guest JWT via TxODDS API           |
-| Subscribe       | On-chain subscribe (free tier)     |
-| Odds Stream     | SSE real-time updates              |
-| Snapshot        | Current stable (de-margined) prices|
-| Settlement      | Merkle proof vs on-chain root      |
+# Airdrop and deploy
+solana airdrop 5
+solana program deploy target/deploy/kicktick.so
+```
 
-**Devnet TxODDS Oracle:** `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J`  
-**KickTick Program ID (placeholder):** `KTCKiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCkTiCk`
+### 3. Update Program ID (if needed)
 
-## Repository Structure
+The deploy keypair generates a unique program ID. Sync it:
+
+```bash
+anchor keys sync       # updates declare_id! in lib.rs
+# OR update manually in:
+#   - programs/kicktick/src/lib.rs  → declare_id!("...")
+#   - Anchor.toml [programs.localnet]
+#   - frontend/src/lib/constants.ts
+#   - relayer/src/config.ts
+```
+
+### 4. Relayer
+
+```bash
+cd relayer
+npm install
+npm test          # 30 tests
+npm run dev       # start:3001
+```
+
+### 5. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev       # :5173
+```
+
+### 6. Open Browser
+
+[http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+Connect Phantom/Solflare wallet, create markets, open rounds, place bets.
+
+## Deploy to Devnet
+
+```bash
+solana config set --url devnet
+solana airdrop 5
+anchor deploy
+```
+
+Requires a devnet wallet with SOL. Devnet faucet at faucet.solana.com.
+
+## Project Structure
 
 ```
 kicktick/
-├── README.md
-├── deploy.sh
-├── setup-local.sh
-├── simulation.ts              # Settlement & spike detection tests
-├── simulation.js
-├── frontend/                  # Next.js UI
-│   ├── app/
-│   ├── components/
-│   └── lib/
-└── kicktick/                  # Anchor workspace
-    ├── Anchor.toml
-    ├── programs/kicktick/
-    │   └── src/lib.rs         # On-chain program
-    ├── client/
-    │   ├── src/
-    │   │   ├── txodds-oracle.ts   # TxODDS + SpikeDetector
-    │   │   └── market-manager.ts  # High-level SDK
-    │   └── package.json
-    └── tests/kicktick.ts
+├── programs/kicktick/   # Anchor program (Rust)
+│   └── src/lib.rs       # initMatch, openRound, placeBet, settleMarket
+├── relayer/             # TypeScript settlement oracle
+│   └── src/
+│       ├── services/    # TxODDS integration
+│       ├── solana/      # Program interaction
+│       └── websocket/   # Frontend relay
+├── frontend/            # React + Vite + Tailwind
+│   └── src/
+│       ├── admin/       # AdminMatchDetail (openRound wired)
+│       ├── components/  # CreateMarketModal (initMatch wired)
+│       └── lib/         # Wallet context, constants, SDK client
+├── sdk/src/             # TypeScript client library
+└── docker/              # Docker Compose deployment
 ```
 
-## Market Lifecycle (Sub-60s)
+## Status (2026-08-10)
 
-1. Create market (specify type + short duration)
-2. Users place YES/NO bets (USDT)
-3. Market expires (15s–5m)
-4. Settle using TxODDS data + proof → outcome Yes/No
-5. Winners claim from vault
-
-`odds_spike` markets use the built-in `SpikeDetector` (15% threshold by default) in the client.
-
-## Running Simulations
-
-```bash
-# TypeScript
-npx ts-node simulation.ts
-
-# or JS
-node simulation.js
-```
-
-These demonstrate settlement logic for all market types without requiring a full chain.
-
-## Security Notes
-
-- All settlements reference verifiable TxODDS Merkle data
-- PDA-controlled vaults (no privileged withdrawal keys)
-- Strict duration + overflow checks in program
-- Grace period for settlement calls
+| Component | Status |
+|-----------|--------|
+| Anchor program | Builds, deploys to localnet |
+| Relayer | 30/30 tests passing |
+| Frontend | Builds, wallet-connected, TODOs resolved |
+| SDK client | Browser-compatible, Web Crypto |
+| Devnet deployment | Blocked by faucet rate limit |
 
 ## License
 
